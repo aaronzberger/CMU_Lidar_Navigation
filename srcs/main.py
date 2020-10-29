@@ -8,6 +8,7 @@ import numpy as np
 import time
 import argparse
 import random
+import math
 from torch.multiprocessing import Pool
 import cv2 as cv
 
@@ -17,6 +18,7 @@ from unet import UNet
 from utils import get_model_name, load_config, get_writer, plot_pr_curve
 from postprocess import compute_line_matches, compute_ap, extract_lines, compute_precision_recall
 from torchvision.utils import make_grid
+from shapely.geometry import LineString
 
 from tqdm import tqdm
 
@@ -55,6 +57,42 @@ def build_model(config, device, output="class", train=True):
     scheduler = None
 
     return net, loss_fn, optimizer, scheduler
+    
+    
+def line_to_point(x, y, a, b, c):
+    return ((a * x + b * y + c)) / (math.sqrt(a * a + b * b))
+
+
+def segment_to_standard(l1):
+    x1, y1 = l1[0][0], l1[0][1]
+    x2, y2 = l1[0][2], l1[0][3]
+    
+    a = y1 - y2
+    b = x2 - x1
+    c = (x1-x2)*y1 + (y2-y1)*x1
+    
+    return a, b, c
+
+def distance_to_origin(l1):
+    a, b, c = segment_to_standard(l1)
+    return line_to_point(200, 200, a, b, c)
+
+def lines_are_close(l1, l2):
+    a, b, c = segment_to_standard(l1)
+    line1Dist = line_to_point(200, 200, a, b, c)
+    
+    a, b, c, = segment_to_standard(l2)
+    line2Dist = line_to_point(200, 200, a, b, c)
+
+    return abs(line1Dist - line2Dist) < 50
+
+
+def best_line(l1, l2):
+    # Just pick the longest line
+    line1Length = math.sqrt(((l1[0][2] - l1[0][0]) ** 2) + ((l1[0][3] - l1[0][1]) ** 2))
+    line2Length = math.sqrt(((l2[0][2] - l2[0][0]) ** 2) + ((l2[0][3] - l2[0][1]) ** 2))
+
+    return line1Length >= line2Length
 
 
 def validation_round(net, loss_fn, device, exp_name, round_num):
@@ -92,7 +130,7 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                             # With the first ground truth data in the batch, convert channel order: 
                             # CxWxH to WxHxC and convert to grayscale image format (0-255 and 8-bit int)
                             truth = np.array(label_map[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-                            image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
+                            image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)                            
                             filename = "epoch_%s_truth.jpg" % round_num
                             cv.imwrite(filename, image_truth)
 
@@ -101,6 +139,83 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                             image_prediction = cv.cvtColor(prediction, cv.COLOR_GRAY2BGR)
                             filename = "epoch_%s_prediction.jpg" % round_num
                             cv.imwrite(filename, image_prediction)
+                            
+                            image_prediction_gray = cv.cvtColor(image_prediction, cv.COLOR_BGR2GRAY)
+                            line_prediction = np.copy(image_prediction)
+                            line_prediction2 = np.copy(image_prediction)
+
+
+                            if round_num > 0:
+                                # Find the lines
+#                                 _, thresh = cv.threshold(image_prediction, 127, 255, 0)
+#                                 contours, _ = cv.findContours(
+#                                     thresh.astype('uint8'),
+#                                     mode=cv.RETR_EXTERNAL,
+#                                     method=cv.CHAIN_APPROX_SIMPLE
+#                                 )
+#                                 contours = [c for c in contours if cv.contourArea(c) > 1]
+
+                                _, thresh = cv.threshold(image_prediction_gray, 50, 255, cv.THRESH_BINARY)
+                                filename = "epoch_%s_thresh.jpg" % round_num
+                                cv.imwrite(filename, thresh)
+               
+                                lines = cv.HoughLinesP(thresh, 1, (np.pi / 180), 150, None, 100, 100)
+                                                                #  min_intersections, None, min_points, max_gap
+                                if lines is not None:
+                                    for i in range(0, len(lines)):
+                                        print("Line #%s: \n%s\n" % (i+1, lines[i][0]))
+                                        l = lines[i][0]
+                                        cv.line(line_prediction2, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 2, cv.LINE_AA)
+
+                                    filename = "epoch_%s_detected2.jpg" % round_num
+
+                                    cv.imwrite(filename, line_prediction2)
+
+                                # Determine whether each line is available: 1 for available, 0 for claimed
+                                tracker = np.ones(len(lines))
+                                    
+                                # For each line, see which other lines it matches and put those in a group (O = n*log(n))
+                                newLines = []
+                                if lines is not None:
+                                    for i in range(0, len(lines)):
+                                        if tracker[i] == 1:
+                                            group = []
+                                            group.append(lines[i])
+                                            for j in range(1, len(lines)):
+                                                if tracker[j] == 1 and lines_are_close(lines[i], lines[j]):
+                                                    group.append(lines[j])
+                                                    tracker[j] = 0
+                                            tracker[i] = 0
+                                            newLines.append(group)
+                                
+                                finalLines = []
+                                if len(newLines) > 0:
+                                    for group in newLines:
+                                        bestLine = group[0]
+                                        for i in range(1, len(group)):
+                                            if not best_line(bestLine, group[i]):
+                                                bestLine = group[i]
+                                        finalLines.append(bestLine)
+                                        
+                                if finalLines is not None:
+                                    for i in range(0, len(finalLines)):
+                                        print("Line #%s: \n%s\n" % (i+1, finalLines[i][0]))
+                                        l = finalLines[i][0]
+                                        cv.line(line_prediction, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 3, cv.LINE_AA)
+
+                                    filename = "epoch_%s_detected.jpg" % round_num
+
+                                    cv.imwrite(filename, line_prediction)
+
+                                print("Groups of Lines: (%s)\n" % len(newLines))
+                                for group in newLines:
+                                    print("Group:\n")
+                                    for line in group:
+                                        print("%s %s\n" % (line, distance_to_origin(line)))
+                                    print("\n")
+                                   
+
+                                         
                             
                 first = False
                 
@@ -302,7 +417,7 @@ def train(exp_name, device, output):
     val_writer = get_writer(config, 'val')
 
     if config['resume_training']:
-        st_epoch = config['resume_from']
+        start_epoch = config['resume_from']
         saved_ckpt_path = get_model_name(config)
 
         if config['mGPUs']:
@@ -312,15 +427,15 @@ def train(exp_name, device, output):
 
         print("Successfully loaded trained checkpoint at {}".format(saved_ckpt_path))
     else:
-        st_epoch = 0
+        start_epoch = 0
 
-    step = 1 + st_epoch * len(train_data_loader)
+    step = 1 + start_epoch * len(train_data_loader)
     running_loss = 0
 
     # Do an initial validation as a benchmark
-    validation_round(net, loss_fn, device, exp_name, 0)
+    validation_round(net, loss_fn, device, exp_name, start_epoch)
 
-    for epoch in range(st_epoch, max_epochs):
+    for epoch in range(start_epoch, max_epochs):
         
         epoch_loss = 0
         net.train()
