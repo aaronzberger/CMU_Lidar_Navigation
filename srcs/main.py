@@ -19,7 +19,6 @@ from utils import get_model_name, load_config, get_writer, plot_pr_curve
 from postprocess import compute_line_matches, compute_ap, extract_lines, compute_precision_recall
 from torchvision.utils import make_grid
 from shapely.geometry import LineString
-
 from tqdm import tqdm
 
 from sklearn.decomposition import PCA
@@ -57,12 +56,33 @@ def build_model(config, device, output="class", train=True):
     scheduler = None
 
     return net, loss_fn, optimizer, scheduler
+
+
+def distance(x1, y1, x2, y2):
+    dx, dy = x2-x1, y2-y1
+    return math.sqrt(dx**2 + dy**2)
+
+def angle_to_line(l1):
+    x1, y1 = l1[0][0], l1[0][1]
+    x2, y2 = l1[0][2], l1[0][3]
     
+    dx, dy = x2-x1, y2-y1
+    det = dx*dx + dy*dy
     
+    a = (dy*(200-y1)+dx*(200-x1))/det
+    closestX, closestY = x1+a*dx, y1+a*dy
+    
+    return math.atan2(closestY - 200, closestX - 200)
+
 def line_to_point(x, y, a, b, c):
-    return ((a * x + b * y + c)) / (math.sqrt(a * a + b * b))
+    return (abs(a * x + b * y + c)) / (math.sqrt(a * a + b * b))
 
-
+def line_to_line(l1, l2):
+    line1 = LineString([(l1[0][0], l1[0][1]), (l1[0][2], l1[0][3])])
+    line2 = LineString([(l2[0][0], l2[0][1]), (l2[0][2], l2[0][3])])
+    
+    return line1.distance(line2)
+    
 def segment_to_standard(l1):
     x1, y1 = l1[0][0], l1[0][1]
     x2, y2 = l1[0][2], l1[0][3]
@@ -73,19 +93,34 @@ def segment_to_standard(l1):
     
     return a, b, c
 
-def distance_to_origin(l1):
-    a, b, c = segment_to_standard(l1)
-    return line_to_point(200, 200, a, b, c)
-
-def lines_are_close(l1, l2):
-    a, b, c = segment_to_standard(l1)
-    line1Dist = line_to_point(200, 200, a, b, c)
+def intersect(l1, l2):
+    line1 = LineString([(l1[0][0], l1[0][1]), (l1[0][2], l1[0][3])])
+    line2 = LineString([(l2[0][0], l2[0][1]), (l2[0][2], l2[0][3])])
     
-    a, b, c, = segment_to_standard(l2)
-    line2Dist = line_to_point(200, 200, a, b, c)
+    return line1.intersects(line2)
+    
 
-    return abs(line1Dist - line2Dist) < 50
+def lines_are_close(l1, l2, dist, theta_deg):
+    a1, b1, c1 = segment_to_standard(l1)
+    line1Dist = line_to_point(200, 200, a1, b1, c1)
+    line1Angle = angle_to_line(l1)
+    
+    a2, b2, c2 = segment_to_standard(l2)
+    line2Dist = line_to_point(200, 200, a2, b2, c2)
+    line2Angle = angle_to_line(l2)
+    
+    x1, y1 = l1[0][0], l1[0][1]
+    x2, y2 = l1[0][2], l1[0][3]
+    
+    x3, y3 = l2[0][0], l2[0][1]
+    x4, y4 = l2[0][2], l2[0][3]
+    
+    shortestDistance = line_to_point(x1, y1, a2, b2, c2)
+    shortestDistance = line_to_point(x2, y2, a2, b2, c2) if line_to_point(x2, y2, a2, b2, c2) <= shortestDistance else shortestDistance
+    shortestDistance = line_to_point(x3, y3, a1, b1, c1) if line_to_point(x3, y3, a1, b1, c1) <= shortestDistance else shortestDistance
+    shortestDistance = line_to_point(x4, y4, a1, b1, c1) if line_to_point(x4, y4, a1, b1, c1) <= shortestDistance else shortestDistance
 
+    return intersect(l1, l2) or shortestDistance < dist or (abs(line1Dist - line2Dist) < dist and abs(line1Angle - line2Angle) < math.radians(theta_deg))
 
 def best_line(l1, l2):
     # Just pick the longest line
@@ -94,11 +129,15 @@ def best_line(l1, l2):
 
     return line1Length >= line2Length
 
+def distance_to_origin(l1):
+    a, b, c = segment_to_standard(l1)
+    return line_to_point(200, 200, a, b, c)
+
 
 def validation_round(net, loss_fn, device, exp_name, round_num):
     net.eval()
     
-#     Load hyperparameters
+    # Load hyperparameters
     config, learning_rate, batch_size, max_epochs = load_config(exp_name)
 
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -106,7 +145,7 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
     
     with torch.no_grad():
         val_loss = 0
-        first = True
+        image_number = 0
         
         with tqdm(total=num_val, desc='Validation: ', unit=' pointclouds') as progress:
             for input, label_map, _, _, _ in test_data_loader:
@@ -123,7 +162,7 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                 # To better visualize the images, exagerate the difference between 0 and 1
                 predictions = torch.sigmoid(predictions)
 
-                if config['visualize'] and first:
+                if config['visualize']:
                     for num in config['vis_after_epoch']:
                         if round_num == num:
                             # Save the ground truth image
@@ -131,94 +170,76 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                             # CxWxH to WxHxC and convert to grayscale image format (0-255 and 8-bit int)
                             truth = np.array(label_map[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
                             image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)                            
-                            filename = "epoch_%s_truth.jpg" % round_num
+                            filename = "images/%s_truth.jpg" % image_number
                             cv.imwrite(filename, image_truth)
-
+                            
                             # Save the prediction image
                             prediction = np.array(predictions[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-                            image_prediction = cv.cvtColor(prediction, cv.COLOR_GRAY2BGR)
-                            filename = "epoch_%s_prediction.jpg" % round_num
-                            cv.imwrite(filename, image_prediction)
+                            image_unet_prediction = cv.cvtColor(prediction, cv.COLOR_GRAY2BGR)
+                            filename = "images/%s_unet_output.jpg" % image_number
+                            cv.imwrite(filename, image_unet_prediction)
+        
+                            # Construct and save an image of the point cloud
+                            pcl = np.array(input[0].cpu() * 255, dtype=np.uint8)
+                            image_pcl = np.amax(pcl, axis=0)
+                            filename = "images/%s_pcl.jpg" % image_number
+                            cv.imwrite(filename, image_pcl)
                             
-                            image_prediction_gray = cv.cvtColor(image_prediction, cv.COLOR_BGR2GRAY)
-                            line_prediction = np.copy(image_prediction)
-                            line_prediction2 = np.copy(image_prediction)
+                            # Threshold the image so it is only true or false pixels (255 or 0)
+                            image_unet_prediction_gray = cv.cvtColor(image_unet_prediction, cv.COLOR_BGR2GRAY)
+                            _, thresh = cv.threshold(image_unet_prediction_gray, 50, 255, cv.THRESH_BINARY)
 
+                            # Find the lines
+                            lines = cv.HoughLinesP(thresh, 1, (np.pi / 360), 50, None, 25, 50)
+                                                            #  min_intersections, None, min_points, max_gap
 
-                            if round_num > 0:
-                                # Find the lines
-#                                 _, thresh = cv.threshold(image_prediction, 127, 255, 0)
-#                                 contours, _ = cv.findContours(
-#                                     thresh.astype('uint8'),
-#                                     mode=cv.RETR_EXTERNAL,
-#                                     method=cv.CHAIN_APPROX_SIMPLE
-#                                 )
-#                                 contours = [c for c in contours if cv.contourArea(c) > 1]
+                            if lines is None:
+                                continue
 
-                                _, thresh = cv.threshold(image_prediction_gray, 50, 255, cv.THRESH_BINARY)
-                                filename = "epoch_%s_thresh.jpg" % round_num
-                                cv.imwrite(filename, thresh)
-               
-                                lines = cv.HoughLinesP(thresh, 1, (np.pi / 180), 150, None, 100, 100)
-                                                                #  min_intersections, None, min_points, max_gap
-                                if lines is not None:
-                                    for i in range(0, len(lines)):
-                                        print("Line #%s: \n%s\n" % (i+1, lines[i][0]))
-                                        l = lines[i][0]
-                                        cv.line(line_prediction2, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 2, cv.LINE_AA)
+                            # LINE CLUSTERING
+                            # Determine whether each line is not yet clustered (1 or 0)
+                            tracker = np.ones(len(lines))
 
-                                    filename = "epoch_%s_detected2.jpg" % round_num
-
-                                    cv.imwrite(filename, line_prediction2)
-
-                                # Determine whether each line is available: 1 for available, 0 for claimed
-                                tracker = np.ones(len(lines))
-                                    
-                                # For each line, see which other lines it matches and put those in a group (O = n*log(n))
-                                newLines = []
-                                if lines is not None:
-                                    for i in range(0, len(lines)):
-                                        if tracker[i] == 1:
-                                            group = []
-                                            group.append(lines[i])
-                                            for j in range(1, len(lines)):
-                                                if tracker[j] == 1 and lines_are_close(lines[i], lines[j]):
+                            # For each line, see which other lines it matches and put those in a group (O = n^2)
+                            newLines = []
+                            for i in range(0, len(lines)):
+                                if tracker[i] == 1:
+                                    group = []
+                                    group.append(lines[i])
+                                    for j in range(1, len(lines)):
+                                        if tracker[j] == 1:
+                                        # A line must be similar to any other line in the group. 
+                                        # This could be changed for efficiency (ie: always keep the longest or average 
+                                        # line as a comparison for new lines)
+                                            for line in group:
+                                                if lines_are_close(line, lines[j], 20, 10):
                                                     group.append(lines[j])
                                                     tracker[j] = 0
-                                            tracker[i] = 0
-                                            newLines.append(group)
-                                
-                                finalLines = []
-                                if len(newLines) > 0:
-                                    for group in newLines:
-                                        bestLine = group[0]
-                                        for i in range(1, len(group)):
-                                            if not best_line(bestLine, group[i]):
-                                                bestLine = group[i]
-                                        finalLines.append(bestLine)
-                                        
-                                if finalLines is not None:
-                                    for i in range(0, len(finalLines)):
-                                        print("Line #%s: \n%s\n" % (i+1, finalLines[i][0]))
-                                        l = finalLines[i][0]
-                                        cv.line(line_prediction, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 3, cv.LINE_AA)
+                                                    break
+                                    tracker[i] = 0
+                                    newLines.append(group)
 
-                                    filename = "epoch_%s_detected.jpg" % round_num
-
-                                    cv.imwrite(filename, line_prediction)
-
-                                print("Groups of Lines: (%s)\n" % len(newLines))
+                            # Choose the best line in each cluster to keep
+                            finalLines = []
+                            if len(newLines) > 0:
                                 for group in newLines:
-                                    print("Group:\n")
-                                    for line in group:
-                                        print("%s %s\n" % (line, distance_to_origin(line)))
-                                    print("\n")
-                                   
+                                    bestLine = group[0]
+                                    for i in range(1, len(group)):
+                                        if not best_line(bestLine, group[i]):
+                                            bestLine = group[i]
+                                    finalLines.append(bestLine)
 
-                                         
+                            # Make and save an image of the line predictions
+                            line_prediction = np.copy(image_unet_prediction)
+                            for i in range(0, len(finalLines)):
+                                l = finalLines[i][0]
+                                cv.line(line_prediction, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 2, cv.LINE_AA)
+                                filename = "images/%s_final.jpg" % image_number
+                                cv.imwrite(filename, line_prediction)
                             
-                first = False
+                image_number = image_number + 1
                 
+                # Update the tqdm progress bar, moving it along by one batch size
                 progress.update(input.shape[0])
                 
         val_loss = val_loss / len(test_data_loader)
