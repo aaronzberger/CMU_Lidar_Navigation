@@ -98,7 +98,6 @@ def intersect(l1, l2):
     line2 = LineString([(l2[0][0], l2[0][1]), (l2[0][2], l2[0][3])])
     
     return line1.intersects(line2)
-    
 
 def lines_are_close(l1, l2, dist, theta_deg):
     a1, b1, c1 = segment_to_standard(l1)
@@ -186,15 +185,36 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                             cv.imwrite(filename, image_pcl)
                             
                             # Threshold the image so it is only true or false pixels (255 or 0)
-                            image_unet_prediction_gray = cv.cvtColor(image_unet_prediction, cv.COLOR_BGR2GRAY)
-                            _, thresh = cv.threshold(image_unet_prediction_gray, 50, 255, cv.THRESH_BINARY)
+                            _, thresh = cv.threshold(prediction, 50, 255, cv.THRESH_BINARY)
+                            filename = "images/%s_thresh.jpg" % image_number
+                            cv.imwrite(filename, thresh)
+
+                            # Blur it
+                            kernel = np.ones((4,4),np.float32)
+                            blurred = cv.filter2D(prediction,-1,kernel)
+                            filename = "images/%s_blurred.jpg" % image_number
+                            cv.imwrite(filename, blurred)
+                    
+                            # Corner Detection
+#                             corners = cv.cornerHarris(np.float32(blurred), 3, 3, 0.06)
+#                             corner_image = np.copy(cv.cvtColor(blurred, cv.COLOR_GRAY2BGR))
+#                             corner_image[corners>0.01 * corners.max()] = [0, 0, 255]
+# #                             filename = "images/%s_corners.jpg" % image_number
+# #                             cv.imwrite(filename, corner_image)
+                            
 
                             # Find the lines
-                            lines = cv.HoughLinesP(thresh, 1, (np.pi / 360), 50, None, 25, 50)
+                            lines = cv.HoughLinesP(blurred, 2, (np.pi / 180), 150, None, 25, 50)
                                                             #  min_intersections, None, min_points, max_gap
-
                             if lines is None:
                                 continue
+                                
+                            all_lines = np.copy(image_unet_prediction)
+                            for i in range(0, len(lines)):
+                                l = lines[i][0]
+                                cv.line(all_lines, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 1, cv.LINE_AA)
+#                                 filename = "images/%s_all_lines.jpg" % image_number
+#                                 cv.imwrite(filename, all_lines)
 
                             # LINE CLUSTERING
                             # Determine whether each line is not yet clustered (1 or 0)
@@ -502,7 +522,7 @@ def train(exp_name, device, output):
 
         # Run Validation
         # TODO FIXME Skip validation for now
-        validation_round(net, loss_fn, device, exp_name, epoch+1)
+#         validation_round(net, loss_fn, device, exp_name, epoch+1)
         
 #         if (epoch + 1) % 2 == 0:
 #             tic = time.time()
