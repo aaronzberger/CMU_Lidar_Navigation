@@ -121,13 +121,79 @@ def lines_are_close(l1, l2, dist, theta_deg):
 
     return intersect(l1, l2) or shortestDistance < dist or (abs(line1Dist - line2Dist) < dist and abs(line1Angle - line2Angle) < math.radians(theta_deg))
 
-def best_line(l1, l2):
-    # Just pick the longest line
-    line1Length = math.sqrt(((l1[0][2] - l1[0][0]) ** 2) + ((l1[0][3] - l1[0][1]) ** 2))
-    line2Length = math.sqrt(((l2[0][2] - l2[0][0]) ** 2) + ((l2[0][3] - l2[0][1]) ** 2))
 
-    return line1Length >= line2Length
+# Arugument pred_map should be the simgoid of the output of the UNet model
+def line_score(l1, pred_map):    
+    # Constants
+    layer2Weight = 0.5
+    layer3Weight = 0.2
+    lengthWeight = 1.5
+    
+    x1, y1 = l1[0][0], l1[0][1]
+    x2, y2 = l1[0][2], l1[0][3]
+    
+    layer1Score = 0
+    layer2Score = 0
+    layer3Score = 0
+    
+    # This is the number of points for each layer
+    layer1Points = 0
+    layer2Points = 0
+    layer3Points = 0
 
+    # Bresenham Algorithm for drawing lines
+    dx, dy = abs(x2 - x1), abs(y2 - y1)
+    sx = 1 if x1 < x2 else -1
+    sy = 1 if y1 < y2 else -1
+    err = dx - dy
+
+    countInX = True if dx > dy else False
+
+    while not (x1 == x2 and y1 == y2):        
+        # Score the current pixel
+        layer1Score += pred_map[y1, x1] - 5
+        layer1Points += 1
+
+        if countInX:
+            if x1 <= 398 and x1 >= 2:
+                layer2Score += pred_map[y1, x1+1]
+                layer2Score += pred_map[y1, x1-1]
+                layer2Points += 2
+            if x1 <= 397 and x1 >= 3:
+                layer3Score += pred_map[y1, x1+2]
+                layer3Score += pred_map[y1, x1-2]
+                layer3Points += 2
+        else:
+            if y1 <= 398 and y1 >= 2:
+                layer2Score += pred_map[y1+1, x1]
+                layer2Score += pred_map[y1-1, x1]
+                layer2Points += 2
+            if y1 <= 397 and y1 >= 3:
+                layer3Score += pred_map[y1+2, x1]
+                layer3Score += pred_map[y1-2, x1]
+                layer3Points += 2
+
+        # Move to the next pixel
+        e2 = err << 1
+        if e2 > -dy:
+            err -= dy
+            x1 += sx
+        if e2 < dx:
+            err += dx
+            y1 += sy
+
+    finalLayer1 = layer1Score / float(layer1Points)
+    finalLayer2 = layer2Score / float(layer2Points)
+    finalLayer3 = layer3Score / float(layer3Points)
+    
+    final_score = finalLayer1 + (finalLayer2 * layer2Weight) + (finalLayer3 * layer3Weight)
+    
+    line_length = math.sqrt(dx ** 2 + dy ** 2)
+    final_score += (line_length * lengthWeight)
+
+    return final_score
+
+    
 def distance_to_origin(l1):
     a, b, c = segment_to_standard(l1)
     return line_to_point(200, 200, a, b, c)
@@ -169,58 +235,36 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                             # CxWxH to WxHxC and convert to grayscale image format (0-255 and 8-bit int)
                             truth = np.array(label_map[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
                             image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)                            
-                            filename = "images/%s_truth.jpg" % image_number
-                            cv.imwrite(filename, image_truth)
                             
                             # Save the prediction image
-                            prediction = np.array(predictions[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-                            image_unet_prediction = cv.cvtColor(prediction, cv.COLOR_GRAY2BGR)
+                            prediction_gray = np.array(predictions[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
+                            prediction_bgr = cv.cvtColor(prediction_gray, cv.COLOR_GRAY2BGR)
                             filename = "images/%s_unet_output.jpg" % image_number
-                            cv.imwrite(filename, image_unet_prediction)
+                            cv.imwrite(filename, prediction_bgr)
         
                             # Construct and save an image of the point cloud
-                            pcl = np.array(input[0].cpu() * 255, dtype=np.uint8)
-                            image_pcl = np.amax(pcl, axis=0)
-                            filename = "images/%s_pcl.jpg" % image_number
-                            cv.imwrite(filename, image_pcl)
-                            
-                            # Threshold the image so it is only true or false pixels (255 or 0)
-                            _, thresh = cv.threshold(prediction, 50, 255, cv.THRESH_BINARY)
-                            filename = "images/%s_thresh.jpg" % image_number
-                            cv.imwrite(filename, thresh)
+#                             pcl = np.array(input[0].cpu() * 255, dtype=np.uint8)
+#                             image_pcl = np.amax(pcl, axis=0)
+#                             filename = "images/%s_pcl.jpg" % image_number
+#                             cv.imwrite(filename, image_pcl)
 
-                            # Blur it
-                            kernel = np.ones((4,4),np.float32)
-                            blurred = cv.filter2D(prediction,-1,kernel)
+                            # Blur the image so the lines are more defined
+                            kernel = np.ones((4, 4), np.float32)
+                            blurred = cv.filter2D(prediction_gray, -1, kernel)
                             filename = "images/%s_blurred.jpg" % image_number
                             cv.imwrite(filename, blurred)
-                    
-                            # Corner Detection
-#                             corners = cv.cornerHarris(np.float32(blurred), 3, 3, 0.06)
-#                             corner_image = np.copy(cv.cvtColor(blurred, cv.COLOR_GRAY2BGR))
-#                             corner_image[corners>0.01 * corners.max()] = [0, 0, 255]
-# #                             filename = "images/%s_corners.jpg" % image_number
-# #                             cv.imwrite(filename, corner_image)
                             
-
                             # Find the lines
                             lines = cv.HoughLinesP(blurred, 2, (np.pi / 180), 150, None, 25, 50)
                                                             #  min_intersections, None, min_points, max_gap
                             if lines is None:
                                 continue
-                                
-                            all_lines = np.copy(image_unet_prediction)
-                            for i in range(0, len(lines)):
-                                l = lines[i][0]
-                                cv.line(all_lines, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 1, cv.LINE_AA)
-#                                 filename = "images/%s_all_lines.jpg" % image_number
-#                                 cv.imwrite(filename, all_lines)
 
                             # LINE CLUSTERING
                             # Determine whether each line is not yet clustered (1 or 0)
                             tracker = np.ones(len(lines))
 
-                            # For each line, see which other lines it matches and put those in a group (O = n^2)
+                            # For each line, see which other lines it matches and put those in a group (O(n) = n^2)
                             newLines = []
                             for i in range(0, len(lines)):
                                 if tracker[i] == 1:
@@ -238,19 +282,31 @@ def validation_round(net, loss_fn, device, exp_name, round_num):
                                                     break
                                     tracker[i] = 0
                                     newLines.append(group)
+                            
+                            # Make an image containing all detected lines, color coded by cluster
+                            color_options = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255), (127, 0, 0), (0, 127, 0), (0, 0, 127), (127, 127, 0), (127, 0, 127), (0, 127, 127), (0, 0, 127)]
+                            color_clusters = np.copy(prediction_bgr)
+                            for i in range(0, len(newLines)):
+                                for line in newLines[i]:
+                                    cv.line(color_clusters, (line[0][0], line[0][1]), (line[0][2], line[0][3]), color_options[i], 1, cv.LINE_AA)
+                            filename = "images/%s_color_clusters.jpg" % image_number
+                            cv.imwrite(filename, color_clusters)
 
-                            # Choose the best line in each cluster to keep
+                            # Choose the best line in each cluster to keep (uses the scoring function above)
                             finalLines = []
                             if len(newLines) > 0:
                                 for group in newLines:
                                     bestLine = group[0]
+                                    bestScore = line_score(group[0], blurred)
                                     for i in range(1, len(group)):
-                                        if not best_line(bestLine, group[i]):
+                                        lineScore = line_score(group[i], blurred)
+                                        if lineScore >= bestScore:
                                             bestLine = group[i]
+                                            bestScore = lineScore
                                     finalLines.append(bestLine)
-
-                            # Make and save an image of the line predictions
-                            line_prediction = np.copy(image_unet_prediction)
+                                    
+                            # Make and save an image of the final line predictions
+                            line_prediction = np.copy(cv.cvtColor(blurred, cv.COLOR_GRAY2BGR))
                             for i in range(0, len(finalLines)):
                                 l = finalLines[i][0]
                                 cv.line(line_prediction, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 2, cv.LINE_AA)

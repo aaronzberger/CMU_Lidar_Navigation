@@ -1,10 +1,10 @@
 {
   "name": "10meter",
   "resume_training": true,
-  "resume_from": 50,
+  "resume_from": 120,
   "visualize": true,
   "vis_every": 100,
-  "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 200, 500],
+  "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 120],
 
   "batch_size": 4,
   "learning_rate": 0.001,

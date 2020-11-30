@@ -3,7 +3,6 @@ import os
 import errno
 from glob import glob
 
-
 import numpy as np
 from matplotlib import pyplot as plt
 
