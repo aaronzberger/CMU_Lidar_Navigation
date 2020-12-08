@@ -32,20 +32,8 @@ class VineyardDataset(Dataset):
                     np.ones(self.reg_map_channels)
 #             print("Not normalizing regression map")
 
-
     def __len__(self):
         return len(self.dataset)
-
-  # "geometry":{
-  #       "L1": -5.0,
-  #       "L2": 5.0,
-  #       "W1": 0.0,
-  #       "W2": 10.0,
-  #       "H1": -1.6,
-  #       "H2": 0.32,
-  #       "input_shape": [400, 400, 24],
-  #       "label_shape": [400, 400, 1]
-  #   },
 
     def get_pointcloud(self, item, frame='bev'):
         if frame != 'bev' and frame != 'orig':
@@ -90,14 +78,12 @@ class VineyardDataset(Dataset):
 
     def __getitem__(self, item):
         raw_path, label_path = self.dataset[item]
-
+        
         label_data = np.load(label_path)
         raw_data = np.load(raw_path)
 
         pts = raw_data['pointcloud'][:,0:3]
         labels = label_data['labels']
-        
-        pts, labels = self.augment_data(pts, labels)
         
         _, label_map, instance_map, num_instances = self.bev.make_targets(labels)
 
@@ -106,14 +92,10 @@ class VineyardDataset(Dataset):
         bev = torch.from_numpy(bev).permute(2, 0, 1)
         label_map = torch.from_numpy(label_map).unsqueeze(0)
 
-
         instance_map = torch.from_numpy(instance_map)
-
+        
         return bev, label_map, instance_map, num_instances, item
 
-    def augment_data(self, pts, labels):
-        # TODO add rotation augmentation
-        return pts, labels
 
     def reg_target_normalize(self, label_map):
         '''
@@ -149,16 +131,27 @@ class VineyardDataset(Dataset):
         return dataset
 
 def get_data_loader(batch_size, geometry, shuffle_test=False):
+    '''
+    Retrieve the DataLoaders for training and testing
+    
+    Parameters:
+        batch_size (int): the batch_size for both datasets
+        geometry (arr): the geometry with which to pre-process the point clouds
+        
+    Returns:
+        DataLoader: for training
+        DataLoader: for testing/validation
+        int: length of the training dataset
+        int: length of the testing/validation dataset
+    '''
     train_dataset = VineyardDataset(
             geometry, split="train")
     train_data_loader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size, num_workers=3)
 
     val_dataset = VineyardDataset(
             geometry, split="val")
-
     val_data_loader = DataLoader(val_dataset, shuffle=shuffle_test, batch_size=batch_size, num_workers=8)
     
-
     return train_data_loader, val_data_loader, len(train_dataset), len(val_dataset)
 
 def find_instance_num_distribution(config_name):

@@ -11,17 +11,6 @@ from visualization import pointcloud, horizontal_lines, vertical_lines
 import matplotlib
 import open3d as o3d
 
-  # "geometry":{
-  #       "L1": -40.0,
-  #       "L2": 40.0,
-  #       "W1": 0.0,
-  #       "W2": 70.0,
-  #       "H1": -2.5,
-  #       "H2": 1.0,
-  #       "input_shape": [800, 700, 36],
-  #       "label_shape": [200, 175, 7]
-  #   }
-
 
 class BEV:
     def __init__(self, geom):
@@ -83,22 +72,12 @@ class BEV:
         p1 = np.ones((N, 3))
         p1[:,0:2] = labels[:,[0, 2]]
 
-        print("P1:")
-        print(p1)
-
         p2 = np.ones((N, 3))
         p2[:,0:2] = labels[:,[1, 3]]
 
-        print("P2:")
-        print(p2)
-
         # Cross product of two points gives the line
         lines = np.cross(p1, p2)
-        print("Lines cross:")
-        print(lines)
         lines /= np.linalg.norm(lines[:,0:2])
-        print("Lines norm:")
-        print(lines)
 
         # Iteratively crop the lines with each bounding line
         for bound in self.bounds:
@@ -106,8 +85,9 @@ class BEV:
             N = len(lines)
             dists = np.zeros((2, N))
             valid = np.zeros((2, N), dtype='bool')
+            
             for i, p in enumerate((p1, p2)):
-                bound = bound / np.linalg.norm(bound)
+                bound /= np.linalg.norm(bound)
                 dists[i] = np.sum(p * bound, axis=1)
                 valid[i] = dists[i] > 0
             

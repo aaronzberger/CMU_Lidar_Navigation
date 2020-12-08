@@ -1,10 +1,11 @@
 {
   "name": "10meter",
-  "resume_training": true,
+  "resume_training": false,
   "resume_from": 120,
   "visualize": true,
-  "vis_every": 100,
+  "vis_every_epoch": false,
   "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 120],
+  "image_save_dir": "/home/aaron/images",
 
   "batch_size": 4,
   "learning_rate": 0.001,
@@ -14,7 +15,7 @@
   "beta": 0.1,
   "lr_decay_at": [40, 80],
   "max_epochs": 120,
-  "save_every": 1,
+  "save_every": 5,
   "log_every": 20,
 
   "use_bn": true,
