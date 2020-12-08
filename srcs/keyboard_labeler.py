@@ -4,35 +4,38 @@ from math import radians, degrees
 
 from helpers import rotation_2d
 
-ROW_SPACING = 2.55
-
 # Adapted from
 # https://stackoverflow.com/questions/33569626/matplotlib-responding-to-click-events
 # https://stackoverflow.com/questions/29277080/efficient-matplotlib-redrawing
+
 class Labeler(object):
-    def __init__(self):
-        # self.setup_plot()
- 
+    def __init__(self): 
+        # Distance between rows
+        self.row_spacing = 3.0
+
+        # Length of rows
+        self.row_radius = 20
+
         # format is x0, y0, theta
         self.row_to_sensor_t = np.array([0., 0.])
         self.row_to_sensor_angle = 0
 
-        ROW_LEN = 40
+        # Represents the guiding lines (X1, Y1, X2, Y2)
         self.rows = np.array([
-            [0., n*ROW_SPACING/2., ROW_LEN, n*ROW_SPACING/2.] 
+            [-self.row_radius, n*self.row_spacing/2., self.row_radius, n*self.row_spacing/2.] 
             for n in range(-7, 7+2, 2)
         ])
         self.lines = []
 
     def setup_plot(self):
-        # Sized so that the plot will not be larger than the avaliable
-        # viewport on John's laptop. Issues may result on other screen sizes
-        self.fig = plt.figure(figsize=(9.8, 9.8))
+        # The 'figsize' parameter should be adjusted for your screen size
+        self.fig = plt.figure(figsize=(15.0, 15.0))
         self.ax = self.fig.add_subplot(1, 1, 1)
 
         plt.tight_layout()
-        # Optimized for the lidar scans taken from the warthog robot
-        self.ax.set_xlim(0, 20)
+
+        # Set the limits for X (forward/backwards) and Y (side/side)
+        self.ax.set_xlim(-20, 20)
         self.ax.set_ylim(-10, 10)
 
         self.last_point = None
@@ -41,11 +44,14 @@ class Labeler(object):
             if k.startswith('keymap'):
                 plt.rcParams[k] = ''
 
+        # Callbacks for button and mouse clicks
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
 
     def points_to_lines(self, P1, P2):
         '''
+        Convert line from two-points format to standard form
+
         Params:
             P1: Nx2 numpy array of [x, y]
             P2: Nx2 numpy array of [x, y]
@@ -62,7 +68,7 @@ class Labeler(object):
     def point_line_distance(self, point, lines):
         '''
         Params:
-            point: 1D numpy array of [x, y]
+            point: Nx2 numpy array of [x, y]
             lines: Nx3 numpy array of [[a, b, c], ...]
         '''
 
@@ -109,9 +115,14 @@ class Labeler(object):
                 self.rows, self.row_to_sensor_t,
                 self.row_to_sensor_angle)
 
+        # Convert the guide lines to standard form
         row_lines = self.points_to_lines(
                 rows[:,0:2], rows[:,2:4])
+
+        # Determine distance from the mouse-clicked point and each line
         dists = self.point_line_distance(point, row_lines)
+
+        # Choose the guide line that the mouse click was closest to
         i = np.argmin(dists)
         row_line = rows[i]
 
@@ -119,13 +130,15 @@ class Labeler(object):
                 (event.xdata, event.ydata),
                 row_lines[i])
 
+        # On a left click, store the point TODO figure this out
         if event.button == 1:
             if self.last_point is None:
                 self.last_point = click
             else:
                 self.add_annotation(click, self.last_point)
                 self.last_point = None
-                        
+        
+        # On a right click, delete the line
         if event.button == 3:
             del self.lines[-1]
 
@@ -133,22 +146,42 @@ class Labeler(object):
 
 
     def on_key(self, event):
+        # On a key press, move or rotate the lines accordingly
         INC_AMOUNT_T = 0.01
+
+        # Move left and right
         if event.key == 'a':
-            self.row_to_sensor_t -= np.array([INC_AMOUNT_T, 0.])
+            self.row_to_sensor_t -= np.array([INC_AMOUNT_T*2, 0.])
         if event.key == 'd':
-            self.row_to_sensor_t += np.array([INC_AMOUNT_T, 0.])
-        if event.key == 's':
-            self.row_to_sensor_t -= np.array([0., INC_AMOUNT_T])
+            self.row_to_sensor_t += np.array([INC_AMOUNT_T*2, 0.])
+
+        # Move up and down
         if event.key == 'w':
             self.row_to_sensor_t += np.array([0., INC_AMOUNT_T])
-        if event.key == 'q':
-            self.row_to_sensor_angle += radians(.25)
-        if event.key == 'e':
-            self.row_to_sensor_angle -= radians(.25)
+        if event.key == 's':
+            self.row_to_sensor_t -= np.array([0., INC_AMOUNT_T])
+
+        # Rotate the yaw counter-clockwise and clockwise
+        if event.key == 'r':
+            self.row_to_sensor_angle += radians(.15)
+        if event.key == 'f':
+            self.row_to_sensor_angle -= radians(.15)
+
+        # Increase and decrease the row spacing
+        if event.key == 't':
+            self.row_spacing += INC_AMOUNT_T
+        if event.key == 'g':
+            self.row_spacing -= INC_AMOUNT_T
+
+        # Make the rows longer and shorter
+        if event.key == 'y':
+            self.row_radius += INC_AMOUNT_T * 5
+        if event.key == 'h':
+            self.row_radius -= INC_AMOUNT_T * 5
 
         self.last_point = None
         self.redraw()
+
 
     def transform_rows(self, lines, t, angle):
         R = rotation_2d(angle)
@@ -171,7 +204,7 @@ class Labeler(object):
             self.draw_line(pts[:,0], pts[:,1], color='grey')
 
 
-    def draw_line(self, x, y, color=None, redraw=True):
+    def draw_line(self, x, y, color=None):
         lines = self.ax.plot(x,y, c=color)
 
         for line in lines:
@@ -179,9 +212,16 @@ class Labeler(object):
 
 
     def redraw(self):
-        # Efficiently update the line annotations by restoring the 
-        # pre-rendered background lidar points all at once and then 
-        # drawing lines on top
+        '''
+        Efficiently update the line annotations by restoring the 
+        pre-rendered background lidar points all at once and then 
+        drawing lines on top
+        '''
+
+        self.rows = np.array([
+            [-self.row_radius, n*self.row_spacing/2., self.row_radius, n*self.row_spacing/2.] 
+            for n in range(-7, 7+2, 2)
+        ])
 
         self.fig.canvas.restore_region(self.background)
         self.draw_row_guides()
@@ -193,11 +233,6 @@ class Labeler(object):
 
         self.fig.canvas.blit(self.fig.bbox)
 
-
-    # def update_lines(self):
-    #     self.lines = np.array(
-    #         [np.concatenate((l.get_xdata(), l.get_ydata()))
-    #         for l in self.ax.lines])
 
     def get_labels(self):
         lines = self.get_lines()
@@ -211,6 +246,7 @@ class Labeler(object):
             )
         return label_format
 
+
     def get_lines(self):
         if len(self.lines) == 0:
             return []
@@ -221,15 +257,16 @@ class Labeler(object):
                 self.row_to_sensor_angle)
             return lines
 
+
     def plot_points(self, pts):
         self.setup_plot()
 
+        # Plot the Lidar points
         self.ax.scatter(
             pts[:,0], pts[:,1], c=pts[:,2], vmin=-1,
             vmax=1, s=1., cmap='jet'
         ) 
 
-        # Draw the lidar points and save them for efficient line annotation
         self.fig.canvas.draw()
         self.background = self.fig.canvas.copy_from_bbox(self.fig.bbox)
 
