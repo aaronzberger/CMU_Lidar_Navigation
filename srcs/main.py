@@ -24,6 +24,7 @@ from tqdm import tqdm
 from sklearn.decomposition import PCA
 from bev import BEV
 
+
 def build_model(config, device, output="class", train=True):
     if output == "class":
         out_channels = 1
@@ -33,13 +34,13 @@ def build_model(config, device, output="class", train=True):
     net = UNet(config['geometry'], use_batchnorm=config['use_bn'], output_dim=out_channels,
             feature_scale=config["layer_width_scale"])
 
-#     Determine the loss function to be used
+    # Determine the loss function to be used (if you're not sure, use ClassificationLoss)
     if output == "class":
         loss_fn = ClassificationLoss(device, config, num_classes=1)
     elif output == "embedding":
         loss_fn = EmbeddingLoss(device, config, embedding_dim=config['embedding_dim'])
 
-#     Determine whether to run on multiple GPUs
+    # Determine whether to run on multiple GPUs
     if torch.cuda.device_count() <= 1:
         config['mGPUs'] = False
     if config['mGPUs']:
@@ -58,264 +59,61 @@ def build_model(config, device, output="class", train=True):
     return net, loss_fn, optimizer, scheduler
 
 
-def distance(x1, y1, x2, y2):
-    dx, dy = x2-x1, y2-y1
-    return math.sqrt(dx**2 + dy**2)
-
-def angle_to_line(l1):
-    x1, y1 = l1[0][0], l1[0][1]
-    x2, y2 = l1[0][2], l1[0][3]
-    
-    dx, dy = x2-x1, y2-y1
-    det = dx*dx + dy*dy
-    
-    a = (dy*(200-y1)+dx*(200-x1))/det
-    closestX, closestY = x1+a*dx, y1+a*dy
-    
-    return math.atan2(closestY - 200, closestX - 200)
-
-def line_to_point(x, y, a, b, c):
-    return (abs(a * x + b * y + c)) / (math.sqrt(a * a + b * b))
-
-def line_to_line(l1, l2):
-    line1 = LineString([(l1[0][0], l1[0][1]), (l1[0][2], l1[0][3])])
-    line2 = LineString([(l2[0][0], l2[0][1]), (l2[0][2], l2[0][3])])
-    
-    return line1.distance(line2)
-    
-def segment_to_standard(l1):
-    x1, y1 = l1[0][0], l1[0][1]
-    x2, y2 = l1[0][2], l1[0][3]
-    
-    a = y1 - y2
-    b = x2 - x1
-    c = (x1-x2)*y1 + (y2-y1)*x1
-    
-    return a, b, c
-
-def intersect(l1, l2):
-    line1 = LineString([(l1[0][0], l1[0][1]), (l1[0][2], l1[0][3])])
-    line2 = LineString([(l2[0][0], l2[0][1]), (l2[0][2], l2[0][3])])
-    
-    return line1.intersects(line2)
-
-def lines_are_close(l1, l2, dist, theta_deg):
-    a1, b1, c1 = segment_to_standard(l1)
-    line1Dist = line_to_point(200, 200, a1, b1, c1)
-    line1Angle = angle_to_line(l1)
-    
-    a2, b2, c2 = segment_to_standard(l2)
-    line2Dist = line_to_point(200, 200, a2, b2, c2)
-    line2Angle = angle_to_line(l2)
-    
-    x1, y1 = l1[0][0], l1[0][1]
-    x2, y2 = l1[0][2], l1[0][3]
-    
-    x3, y3 = l2[0][0], l2[0][1]
-    x4, y4 = l2[0][2], l2[0][3]
-    
-    shortestDistance = line_to_point(x1, y1, a2, b2, c2)
-    shortestDistance = line_to_point(x2, y2, a2, b2, c2) if line_to_point(x2, y2, a2, b2, c2) <= shortestDistance else shortestDistance
-    shortestDistance = line_to_point(x3, y3, a1, b1, c1) if line_to_point(x3, y3, a1, b1, c1) <= shortestDistance else shortestDistance
-    shortestDistance = line_to_point(x4, y4, a1, b1, c1) if line_to_point(x4, y4, a1, b1, c1) <= shortestDistance else shortestDistance
-
-    return intersect(l1, l2) or shortestDistance < dist or (abs(line1Dist - line2Dist) < dist and abs(line1Angle - line2Angle) < math.radians(theta_deg))
-
-
-# Arugument pred_map should be the simgoid of the output of the UNet model
-def line_score(l1, pred_map):    
-    # Constants
-    layer2Weight = 0.5
-    layer3Weight = 0.2
-    lengthWeight = 1.5
-    
-    x1, y1 = l1[0][0], l1[0][1]
-    x2, y2 = l1[0][2], l1[0][3]
-    
-    layer1Score = 0
-    layer2Score = 0
-    layer3Score = 0
-    
-    # This is the number of points for each layer
-    layer1Points = 0
-    layer2Points = 0
-    layer3Points = 0
-
-    # Bresenham Algorithm for drawing lines
-    dx, dy = abs(x2 - x1), abs(y2 - y1)
-    sx = 1 if x1 < x2 else -1
-    sy = 1 if y1 < y2 else -1
-    err = dx - dy
-
-    countInX = True if dx > dy else False
-
-    while not (x1 == x2 and y1 == y2):        
-        # Score the current pixel
-        layer1Score += pred_map[y1, x1] - 5
-        layer1Points += 1
-
-        if countInX:
-            if x1 <= 398 and x1 >= 2:
-                layer2Score += pred_map[y1, x1+1]
-                layer2Score += pred_map[y1, x1-1]
-                layer2Points += 2
-            if x1 <= 397 and x1 >= 3:
-                layer3Score += pred_map[y1, x1+2]
-                layer3Score += pred_map[y1, x1-2]
-                layer3Points += 2
-        else:
-            if y1 <= 398 and y1 >= 2:
-                layer2Score += pred_map[y1+1, x1]
-                layer2Score += pred_map[y1-1, x1]
-                layer2Points += 2
-            if y1 <= 397 and y1 >= 3:
-                layer3Score += pred_map[y1+2, x1]
-                layer3Score += pred_map[y1-2, x1]
-                layer3Points += 2
-
-        # Move to the next pixel
-        e2 = err << 1
-        if e2 > -dy:
-            err -= dy
-            x1 += sx
-        if e2 < dx:
-            err += dx
-            y1 += sy
-
-    finalLayer1 = layer1Score / float(layer1Points)
-    finalLayer2 = layer2Score / float(layer2Points)
-    finalLayer3 = layer3Score / float(layer3Points)
-    
-    final_score = finalLayer1 + (finalLayer2 * layer2Weight) + (finalLayer3 * layer3Weight)
-    
-    line_length = math.sqrt(dx ** 2 + dy ** 2)
-    final_score += (line_length * lengthWeight)
-
-    return final_score
-
-    
-def distance_to_origin(l1):
-    a, b, c = segment_to_standard(l1)
-    return line_to_point(200, 200, a, b, c)
-
-
-def validation_round(net, loss_fn, device, exp_name, round_num):
+def validation_round(net, loss_fn, device, exp_name, epoch_num):
     net.eval()
     
     # Load hyperparameters
     config, learning_rate, batch_size, max_epochs = load_config(exp_name)
 
+    # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
         batch_size, config['geometry'])
     
     with torch.no_grad():
+        # This will keep track of total average loss for all test data
         val_loss = 0
-        image_number = 0
         
         with tqdm(total=num_val, desc='Validation: ', unit=' pointclouds') as progress:
             for input, label_map, _, _, _ in test_data_loader:
                 input = input.to(device)
                 label_map = label_map.to(device)
 
+                # Forward Prop
                 predictions = net(input)
 
                 loss = loss_fn(predictions, label_map)
                 
+                # Update the progress bar with the current batch loss
                 progress.set_postfix(**{'loss (batch)': abs(loss.item())})
                 val_loss += abs(loss.item())
                 
                 # To better visualize the images, exagerate the difference between 0 and 1
                 predictions = torch.sigmoid(predictions)
 
+                # After some epochs, save an image of the input, output, and ground truth for visualization
                 if config['visualize']:
-                    for num in config['vis_after_epoch']:
-                        if round_num == num:
-                            # Save the ground truth image
+                    if epoch_num in config['vis_after_epoch'] or config['vis_every_epoch']:
+                            # Save an image of the ground truth lines
                             # With the first ground truth data in the batch, convert channel order: 
                             # CxWxH to WxHxC and convert to grayscale image format (0-255 and 8-bit int)
                             truth = np.array(label_map[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-                            image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)                            
+                            image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
+                            filename = "images/epoch_%s_truth.jpg" % epoch_num
+                            cv.imwrite(filename, prediction_bgr)
                             
-                            # Save the prediction image
+                            # Save an image of the point cloud:
+                            pcl = np.array(input.cpu() * 255, dtype=np.uint8).transpose(2, 0, 1)
+                            image_pcl = np.amax(pcl, axis=0)
+                            filename = "images/epoch_%s_point_cloud.jpg" % epoch_num
+                            cv.imwrite(filename, image_pcl)
+                            
+                            # Save an image of the U-Net prediction
                             prediction_gray = np.array(predictions[0].cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
                             prediction_bgr = cv.cvtColor(prediction_gray, cv.COLOR_GRAY2BGR)
-                            filename = "images/%s_unet_output.jpg" % image_number
+                            filename = "images/epoch_%s_unet_output.jpg" % epoch_num
                             cv.imwrite(filename, prediction_bgr)
         
-                            # Construct and save an image of the point cloud
-#                             pcl = np.array(input[0].cpu() * 255, dtype=np.uint8)
-#                             image_pcl = np.amax(pcl, axis=0)
-#                             filename = "images/%s_pcl.jpg" % image_number
-#                             cv.imwrite(filename, image_pcl)
-
-                            # Blur the image so the lines are more defined
-                            kernel = np.ones((4, 4), np.float32)
-                            blurred = cv.filter2D(prediction_gray, -1, kernel)
-                            filename = "images/%s_blurred.jpg" % image_number
-                            cv.imwrite(filename, blurred)
-                            
-                            # Find the lines
-                            lines = cv.HoughLinesP(blurred, 2, (np.pi / 180), 150, None, 25, 50)
-                                                            #  min_intersections, None, min_points, max_gap
-                            if lines is None:
-                                continue
-
-                            # LINE CLUSTERING
-                            # Determine whether each line is not yet clustered (1 or 0)
-                            tracker = np.ones(len(lines))
-
-                            # For each line, see which other lines it matches and put those in a group (O(n) = n^2)
-                            newLines = []
-                            for i in range(0, len(lines)):
-                                if tracker[i] == 1:
-                                    group = []
-                                    group.append(lines[i])
-                                    for j in range(1, len(lines)):
-                                        if tracker[j] == 1:
-                                        # A line must be similar to any other line in the group. 
-                                        # This could be changed for efficiency (ie: always keep the longest or average 
-                                        # line as a comparison for new lines)
-                                            for line in group:
-                                                if lines_are_close(line, lines[j], 20, 10):
-                                                    group.append(lines[j])
-                                                    tracker[j] = 0
-                                                    break
-                                    tracker[i] = 0
-                                    newLines.append(group)
-                            
-                            # Make an image containing all detected lines, color coded by cluster
-                            color_options = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255), (127, 0, 0), (0, 127, 0), (0, 0, 127), (127, 127, 0), (127, 0, 127), (0, 127, 127), (0, 0, 127)]
-                            color_clusters = np.copy(prediction_bgr)
-                            for i in range(0, len(newLines)):
-                                for line in newLines[i]:
-                                    cv.line(color_clusters, (line[0][0], line[0][1]), (line[0][2], line[0][3]), color_options[i], 1, cv.LINE_AA)
-                            filename = "images/%s_color_clusters.jpg" % image_number
-                            cv.imwrite(filename, color_clusters)
-
-                            # Choose the best line in each cluster to keep (uses the scoring function above)
-                            finalLines = []
-                            if len(newLines) > 0:
-                                for group in newLines:
-                                    bestLine = group[0]
-                                    bestScore = line_score(group[0], blurred)
-                                    for i in range(1, len(group)):
-                                        lineScore = line_score(group[i], blurred)
-                                        if lineScore >= bestScore:
-                                            bestLine = group[i]
-                                            bestScore = lineScore
-                                    finalLines.append(bestLine)
-                                    
-                            # Make and save an image of the final line predictions
-                            line_prediction = np.copy(cv.cvtColor(blurred, cv.COLOR_GRAY2BGR))
-                            for i in range(0, len(finalLines)):
-                                l = finalLines[i][0]
-                                cv.line(line_prediction, (l[0], l[1]), (l[2], l[3]), (0, 0, 255), 2, cv.LINE_AA)
-                                filename = "images/%s_final.jpg" % image_number
-                                cv.imwrite(filename, line_prediction)
-                            
-                image_number = image_number + 1
-                
-                # Update the tqdm progress bar, moving it along by one batch size
+                # Update the progress bar, moving it along by one batch size
                 progress.update(input.shape[0])
                 
         val_loss = val_loss / len(test_data_loader)
@@ -496,11 +294,11 @@ def train(exp_name, device, output):
     Device:          %s
     ''' % (learning_rate, batch_size, max_epochs, device.type if device.type == 'cpu' else "GPU X %s" % torch.cuda.device_count()))
     
-    # Dataset and DataLoader
+    # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
             batch_size, config['geometry'])
 
-    # Model
+    # Build the model
     net, loss_fn, optimizer, scheduler = build_model(config, device, output, train=True)
     
     print('''\nBuilt model:
@@ -513,6 +311,7 @@ def train(exp_name, device, output):
     train_writer = get_writer(config, 'train')
     val_writer = get_writer(config, 'val')
 
+    # For picking up training at the epoch where you left off. Edit this setting in config file.
     if config['resume_training']:
         start_epoch = config['resume_from']
         saved_ckpt_path = get_model_name(config)
@@ -527,11 +326,11 @@ def train(exp_name, device, output):
         start_epoch = 0
 
     step = 1 + start_epoch * len(train_data_loader)
-    running_loss = 0
 
-    # Do an initial validation as a benchmark
+    # Do an initial validation round as a benchmark
     validation_round(net, loss_fn, device, exp_name, start_epoch)
 
+    # Train for max_epochs epochs
     for epoch in range(start_epoch, max_epochs):
         
         epoch_loss = 0
@@ -547,27 +346,25 @@ def train(exp_name, device, output):
                 # Create mask
                 mask = (0.1 * (1 - label_map)) + (label_map * 0.9)
 
-                # Forward
+                # Forward Prop
                 predictions = net(input)
+                
+                # Calculate loss for this batch
                 if output == "class":
                     loss = loss_fn(predictions, label_map, mask)
                 elif output == "embedding":
                     loss = loss_fn(predictions, instance_map, num_instances)
 
+                # Update the progress bar this this batch's loss
                 progress.set_postfix(**{'loss (batch)': loss.item()})
 
+                # Back Prop
                 loss.backward()
                 optimizer.step()
-                running_loss += loss.item()
-                epoch_loss += loss.item()
-
-                if step % config['log_every'] == 0:
-                    running_loss = running_loss / config['log_every']
-                    train_writer.add_scalar('running_loss', running_loss, step)
-                    running_loss = 0
-
-                step += 1
                 
+                epoch_loss += loss.item()
+                    
+                # Update the progress bar by moving it along by this batch size
                 progress.update(input.shape[0])
 
         # Record Training Loss
@@ -575,11 +372,9 @@ def train(exp_name, device, output):
         train_writer.add_scalar('loss_epoch', epoch_loss, epoch + 1)
         print("Epoch {}: Training Loss: {:.5f}".format(
             epoch + 1, epoch_loss))
+        
 
         # Run Validation
-        # TODO FIXME Skip validation for now
-#         validation_round(net, loss_fn, device, exp_name, epoch+1)
-        
 #         if (epoch + 1) % 2 == 0:
 #             tic = time.time()
 #             val_metrics, _, _, log_images = eval_batch(config, net, loss_fn, test_data_loader, device)
@@ -598,7 +393,7 @@ def train(exp_name, device, output):
                 torch.save(net.module.state_dict(), model_path)
             else:
                 torch.save(net.state_dict(), model_path)
-            print("Checkpoint saved at {}\n".format(model_path))
+            print("Checkpoint for epoch {} saved at {}\n".format(epoch + 1, model_path))
 
         if scheduler is not None:
             scheduler.step()
@@ -715,9 +510,8 @@ def test(exp_name, device, image_id):
         print("nms time {:.3f}s".format(t_nms))
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description='PIXOR custom implementation')
-    parser.add_argument('mode', choices=['train', 'val', 'test'], help='name of the experiment')
+    parser = argparse.ArgumentParser(description='U-Net training module')
+    parser.add_argument('mode', choices=['train', 'val', 'test'], help='mode for the model')
     parser.add_argument('--name', required=True, help="name of the experiment")
     parser.add_argument('--eval_range', type=int, help="range of evaluation")
     parser.add_argument('--test_id', type=int, default=25, help="id of the image to test")
@@ -727,6 +521,7 @@ if __name__ == "__main__":
     if args.output not in ["class", "embedding"]:
         raise ValueError("output must be one of {class, embedding}")
 
+    # Choose a device for the model
     if torch.cuda.is_available():
         device = torch.device('cuda')
     else:
@@ -740,5 +535,3 @@ if __name__ == "__main__":
         experiment(args.name, device, eval_range=args.eval_range, plot=False)
     if args.mode=='test':
         test(args.name, device, image_id=args.test_id)
-
-    # before launching the program! CUDA_VISIBLE_DEVICES=0, 1 python main.py .......
