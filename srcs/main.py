@@ -28,6 +28,21 @@ from bev import BEV
 
 
 def build_model(config, device, output="class", train=True):
+    '''
+    Build the U-Net model
+    
+    Parameters:
+        config (dictionary): dictionary of hyperparameter names and values for configuration
+        device (torch.device): the device on which to run the network
+        output (string): the type of output of the model
+        train (bool): whether the model is being used for training
+        
+    Returns:
+        net (torch.nn.Module): the network
+        loss_fn (class): the loss function for the network
+        optimizer (torch.optim): an optimizer (if train=True)
+        scheduler (torch.optim): a scheduler (if train=True)
+    '''
     if output == "class":
         out_channels = 1
     else:
@@ -123,7 +138,7 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
                 loss = loss_fn(predictions, label_map)
                 
                 # Update the progress bar with the current batch loss
-                progress.set_postfix(**{'loss (batch)': abs(loss.item())})
+                progress.set_postfix(**{'batch loss':"{:.4f}".format(abs(loss.item()))})
                 val_loss += abs(loss.item())
                 
                 # To better visualize the images, exagerate the difference between 0 and 1
@@ -144,169 +159,6 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
                 
         val_loss = val_loss / len(test_data_loader)
         print("Validation Round Loss: %s" % val_loss)
-                
-
-def eval_batch(config, net, loss_fn, loader, device, eval_range='all'):
-    # net.eval()
-
-    # if config['mGPUs']:
-    #     net.module.set_decode(True)
-    # else:
-    #     net.set_decode(True)
-    
-    running_loss = 0
-    all_scores = []
-    all_matches = []
-    log_images = []
-    gts = 0
-    preds = 0
-    t_fwd = 0
-    t_pp = 0
-
-    log_img_list = random.sample(range(len(loader.dataset)), 10)
-
-    with torch.no_grad():
-        for i, data in enumerate(loader):
-            #print("batch", i)
-            tic = time.time()
-
-            input, label_map, _, _, image_id = data
-            input = input.to(device)
-
-            label_map = label_map.to(device)
-            tac = time.time()
-            predictions = net(input)
-            predictions = torch.sigmoid(predictions)
-
-            t_fwd += time.time() - tac
-
-            #print('did predictions')
-
-            loss = loss_fn(predictions, label_map)
-            running_loss += loss
-            t_fwd += (time.time() - tic)
-            
-            toc = time.time()
-            
-            # Parallel post-processing
-            predictions = [t.squeeze().numpy() for t in torch.split(predictions.cpu(), 1, dim=0)]
-            batch_size = len(predictions)
-
-            #print([arr.shape for arr in predictions])
-
-            #print('start pool')
-            with Pool (processes=3) as pool:
-                # TODO FIXME add parameters for line extraction to config
-                # and pass config instead of kwarg parameters
-                lines = pool.starmap(
-                    extract_lines, [(pred,) for pred in predictions])
-
-            print([len(l) for l in lines])
-            t_pp += time.time() - toc
-
-            #print("done postprocess")
-
-            args = []
-            for j in range(batch_size):
-                label_list = loader.dataset.get_labels(image_id[j].item())
-
-                gts += len(label_list)
-                preds += len(lines[j])
-
-                # DISABLE VISUALIZATION
-                # if image_id[j] in log_img_list:
-                #     input_np = input[j].cpu().permute(1, 2, 0).numpy()
-                #     pred_image = get_bev(input_np, corners)
-                #     log_images.append(pred_image)
-
-                arg = (np.array(label_list), lines[j])
-                args.append(arg)
-
-            # Parallel compute matches
-            with Pool (processes=3) as pool:
-                matches = pool.starmap(compute_line_matches, args)
-            
-            for j in range(batch_size):
-                pred_matches_j = list(matches[j][1])
-                all_matches.extend(pred_matches_j)
-                
-            
-    all_matches = np.array(all_matches)
-
-    metrics = {}
-    precision, recall, tp, fp, fn = compute_precision_recall(all_matches, gts, preds)
-    metrics['Precision'] = precision
-    metrics['Recall'] = recall
-    metrics['FP'] = fp
-    metrics['FN'] = fn
-    metrics['TP'] = tp
-
-    metrics['Forward Pass Time'] = t_fwd/len(loader.dataset)
-    metrics['Postprocess Time'] = t_pp/len(loader.dataset) 
-
-    running_loss = running_loss / len(loader)
-    metrics['loss'] = running_loss
-
-    return metrics, precision, recall, log_images
-
-
-def eval_dataset(config, net, loss_fn, loader, device, e_range='all'):
-    net.eval()
-    # if config['mGPUs']:
-    #     net.module.set_decode(True)
-    # else:
-    #     net.set_decode(True)
-
-    t_fwds = 0
-    t_post = 0
-    loss_sum = 0
-
-    img_list = range(len(loader.dataset))
-    if e_range != 'all':
-        e_range = min(e_range, len(loader.dataset))
-        img_list = random.sample(img_list, e_range)
-
-    log_img_list = random.sample(img_list, 10)
-
-    gts = 0
-    preds = 0
-    all_scores = []
-    all_matches = []
-    log_images = []
-
-    with torch.no_grad():
-        for image_id in img_list:
-            #tic = time.time()
-            num_gt, num_pred, scores, pred_image, pred_match, loss, t_forward, t_nms = \
-                eval_one(net, loss_fn, config, loader, image_id, device, plot=False)
-            gts += num_gt
-            preds += num_pred
-            loss_sum += loss
-            all_scores.extend(list(scores))
-            all_matches.extend(list(pred_match))
-
-            t_fwds += t_forward
-            t_post += t_nms
-
-            if image_id in log_img_list:
-                log_images.append(pred_image)
-            #print(time.time() - tic)
-            
-    all_scores = np.array(all_scores)
-    all_matches = np.array(all_matches)
-    sort_ids = np.argsort(all_scores)
-    all_matches = all_matches[sort_ids[::-1]]
-
-    metrics = {}
-    AP, precisions, recalls, precision, recall = compute_ap(all_matches, gts, preds)
-    metrics['AP'] = AP
-    metrics['Precision'] = precision
-    metrics['Recall'] = recall
-    metrics['loss'] = loss_sum / len(img_list)
-    metrics['Forward Pass Time'] = t_fwds / len(img_list)
-    metrics['Postprocess Time'] = t_post / len(img_list)
-
-    return metrics, precisions, recalls, log_images
 
 
 def train(exp_name, device, output):
@@ -432,43 +284,127 @@ def train(exp_name, device, output):
             scheduler.step()
 
     print('Finished Training')
+    
+    
+def eval_loader(config, net, loss_fn, loader, loader_name, device):
+    '''
+    Evaluate the performance of the model on the specified data loader
+    
+    Parameters:
+        config (dictionary): dictionary of hyperparameter names and values for configuration
+        net (torch.nn.Module): the network
+        loss_fn (class): the loss function for the network
+        loader (Dataset): a data loader in which to retrieve the input
+        loader_name (string): the name to give the data loader (only for printing)
+        device (torch.device): the device on which to run the network
+
+    Returns:
+        dict: dictionary of name-value pairs (useful information on the evaluation)
+    '''
+    net.eval()
+    
+    forward_pass_times = []
+    losses = []
+
+    with torch.no_grad():
+        with tqdm(total=len(loader), desc='Evaluate %s Data: ' % loader_name, unit=' pcl') as progress:
+            for i, data in enumerate(loader):
+                input, label_map, _, _, image_id = data
+
+                input = input.to(device)
+                label_map = label_map.to(device)
+
+                start_time = time.time()
+                
+                # Forward Prop
+                predictions = net(input)
+
+                forward_pass_times.append(time.time() - start_time)
+
+                loss = loss_fn(predictions, label_map)
+                
+                losses.append(loss.item())
+                
+                # Update the progress bar with the current batch loss
+                progress.set_postfix(**{'loss':"{:.4f}".format(abs(loss.item()))})
+
+                # Update the progress bar, moving it along by one batch size
+                progress.update(input.shape[0])
+
+    metrics = {}
+
+    metrics['time_mean'] = np.mean(forward_pass_times)
+    metrics['time_max'] = np.amax(forward_pass_times)
+    metrics['time_min'] = np.amin(forward_pass_times)
+    metrics['time_std'] = np.std(forward_pass_times)
+    
+    metrics['loss_mean'] = np.mean(losses)
+    metrics['loss_max'] = np.amax(losses)
+    metrics['loss_min'] = np.amin(losses)
+    metrics['loss_std'] = np.std(losses)
+    
+    return metrics
 
 
-def experiment(exp_name, device, eval_range='all', plot=True):
+def evaluate_model(exp_name, device, plot=True):
+    '''
+    Determine the total performance of the network on all data
+    
+    Parameters:
+        exp_name (string): the name of the experiment for which to load the config file
+        device (torch.device): the device on which to run
+        plot (bool): whether to plot the results for visualization
+    '''
+    # Load Hyperparameters
     config, _, _, _ = load_config(exp_name)
+    
+    # Build the model
     net, loss_fn = build_model(config, device, train=False)
 
-    path = get_model_name(config)
-    state_dict = torch.load(path, map_location=device)
+    saved_ckpt_path = get_model_name(config)
 
-    print("Loaded checkpoint from " + path)
+    if config['mGPUs']:
+        net.module.load_state_dict(torch.load(saved_ckpt_path, map_location=device))
+    else:
+        net.load_state_dict(torch.load(saved_ckpt_path, map_location=device))
 
-    #if config['mGPUs']:
-    #    net.module.load_state_dict(state_dict)
-    #else:
-    #    net.load_state_dict(state_dict)
+    print("Successfully loaded trained checkpoint at {}".format(saved_ckpt_path))
+    
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
-            config['batch_size'], config['geometry'])
+            1, config['geometry'])
 
-    #Train Set
-    #train_metrics, train_precisions, train_recalls, _ = eval_batch(config, net, loss_fn, train_loader, device, eval_range)
-    # print("Training mAP", train_metrics['AP'])
-    #fig_name = "PRCurve_train_" + config['name']
-    #legend = "AP={:.1%}".format(train_metrics['AP'])
-    #plot_pr_curve(train_precisions, train_recalls, legend, name=fig_name)
+    # Evaluate the performance on the training data
+    metrics_train = eval_loader(config, net, loss_fn, train_data_loader, "Train", device)
 
-    # Val Set
-    val_metrics, val_precision, val_recall, _ = eval_batch(config, net, loss_fn, val_loader, device, eval_range)
-
-    print("Validation precision", val_metrics['Precision'])
-    print("Validation recall", val_metrics['Recall'])
-    print("Validation FP", val_metrics['FP'])
-    print("Validation FN", val_metrics['FN'])
-    print("Validation TP", val_metrics['FN'])
-    print("Net Fwd Pass Time on average {:.4f}s".format(val_metrics['Forward Pass Time']))
-    print("Postprocess Time on average {:.4f}s".format(val_metrics['Postprocess Time']))
-
+    # Evaluate the performance on the testing data
+    metrics_val = eval_loader(config, net, loss_fn, test_data_loader, "Test", device)
+    
+    total_inputs = len(train_data_loader) + len(test_data_loader)
+    time_mean = ((metrics_train['time_mean'] * len(train_data_loader)) + (metrics_val['time_mean'] * len(test_data_loader))) / total_inputs
+    
+    print('''\n
+    Network:
+        Weights:         {}
+        Loss Function:   {}
+    
+    Time Evaluation:
+        Mean:            {:.4f} seconds per point cloud
+        Max:             {:.4f} seconds per point cloud
+        Min:             {:.4f} seconds per point cloud
+    
+    Training Data Loss:
+        Mean:            {:.4f}
+        Max:             {:.4f}
+        Min:             {:.4f}
+    
+    Validation Data Loss:
+        Mean:            {:.4f}
+        Max:             {:.4f}
+        Min:             {:.4f}
+    
+    '''.format(saved_ckpt_path, "Classification Loss" if isinstance(loss_fn, ClassificationLoss) else "Embedding Loss", time_mean, max(metrics_train['time_max'], metrics_val['time_max']), min(metrics_train['time_min'], metrics_val['time_min']), metrics_train['loss_mean'], metrics_train['loss_max'], metrics_train['loss_min'], metrics_val['loss_mean'], metrics_val['loss_max'], metrics_val['loss_min']))
+    
     #fig_name = "PRCurve_val_" + config['name']
     #legend = "AP={:.1%}".format(val_metrics['AP'])
     #plot_pr_curve(val_precisions, val_recalls, legend, name=fig_name)
@@ -556,9 +492,8 @@ def test(exp_name, device, image_id):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='U-Net training module')
-    parser.add_argument('mode', choices=['train', 'val', 'test'], help='mode for the model')
+    parser.add_argument('mode', choices=['train', 'eval', 'test'], help='mode for the model')
     parser.add_argument('--name', required=True, help="name of the experiment")
-    parser.add_argument('--eval_range', type=int, help="range of evaluation")
     parser.add_argument('--test_id', type=int, default=25, help="id of the image to test")
     parser.add_argument('--output', required=True, help="output of the model")
     args = parser.parse_args()
@@ -574,9 +509,7 @@ if __name__ == "__main__":
 
     if args.mode=='train':
         train(args.name, device, args.output)
-    if args.mode=='val':
-        if args.eval_range is None:
-            args.eval_range='all'
-        experiment(args.name, device, eval_range=args.eval_range, plot=False)
+    if args.mode=='eval':
+        evaluate_model(args.name, device, plot=False)
     if args.mode=='test':
         test(args.name, device, image_id=args.test_id)
