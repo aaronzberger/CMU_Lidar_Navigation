@@ -2,4 +2,4 @@
 exp_name = 'default'
 
 # Base directory for this project (to save and open files)
-base_dir = '/home/aaron/ag_lidar_navigation-bev'
+base_dir = '/home/aaron/ag_lidar_navigation-bev/CMU_Lidar_Navigation'

@@ -6,16 +6,17 @@ from glob import glob
 import rosbag
 import numpy as np
 
-import config
+from config import exp_name
 
 from numpy_pc2 import pointcloud2_to_xyzi_array
-from utils import mkdir_p
+from utils import mkdir_p, load_config
 
 pointcloud_topic = "/velodyne_points"
 ext = '.bag'
 
-# Directory where .npz files containing the point clouds will be saved
-save_dir ="/home/aaron/Documents/velo_bags/bagsraw/"
+# Directory to save the .npz files containing point clouds
+config, _, _, _ = load_config(exp_name)
+save_dir = os.path.join(config['data_dir'], 'raw')
 
 # Directory containing the original bag files
 bags_dir = "/home/aaron/Documents/velo_bags/bags/"
@@ -23,6 +24,8 @@ bags_dir = "/home/aaron/Documents/velo_bags/bags/"
 # Collect the names of all the bags in the directory specified above
 bagnames = [y for x in os.walk(bags_dir) for y in glob(os.path.join(x[0], '*' + ext))]
 filenames = [b[len(bags_dir):-len(ext)].replace("/","_") for b in bagnames]
+
+num_pcl = 0
 
 for filename, bagname in zip(filenames, bagnames):
     bag = rosbag.Bag(bagname)
@@ -38,9 +41,16 @@ for filename, bagname in zip(filenames, bagnames):
             timestamp_arr = np.array([timestamp], dtype='int64')
             
             # Create a directory named the same as the bag in which to save the data
-            pcl_dir = "%s%s" % (save_dir, filename)
+            pcl_dir = os.path.join(save_dir, filename)
             mkdir_p(pcl_dir)
 
             # Save the point cloud with the name as the timestamp of this message
-            path =  "%s/%s" % (pcl_dir, timestamp)
-            np.savez(path, pointcloud=pc, timestamp=timestamp_arr)
+            np.savez(os.path.join(pcl_dir, str(timestamp)), pointcloud=pc, timestamp=timestamp_arr)
+            num_pcl += 1
+
+print('''\n
+    Finished extracting point clouds:
+    
+        Bags:           {}
+        Point Clouds:   {}
+\n'''.format(len(bagnames), num_pcl))
