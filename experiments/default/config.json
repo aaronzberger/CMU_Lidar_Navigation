@@ -1,0 +1,45 @@
+{
+  "name": "default",
+    
+  "data_dir": "/home/remote_user1/ag_lidar_navigation/data",
+    
+  "resume_training": false,
+  "resume_from": 120,
+  "visualize": true,
+  "vis_every_epoch": false,
+  "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 120],
+
+  "batch_size": 4,
+  "learning_rate": 0.001,
+  "momentum": 0.9,
+  "weight_decay": 0.0001,
+  "alpha": 1.0,
+  "beta": 0.1,
+  "lr_decay_at": [40, 80],
+  "max_epochs": 120,
+  "save_every": 5,
+  "log_every": 20,
+
+  "use_bn": true,
+  "use_npy": false,
+  "mGPUs": false,
+  "frame_range": 10000,
+
+  "cls_threshold": 0.05,
+  "nms_iou_threshold": 0.1,
+  "nms_top": 128,
+
+  "geometry":{
+        "L1": -5.0,
+        "L2": 5.0,
+        "W1": 0.0,
+        "W2": 10.0,
+        "H1": -1.6,
+        "H2": 0.32,
+        "input_shape": [400, 400, 24],
+        "label_shape": [400, 400, 1]
+    },
+    "embedding_dim": 8,
+    "max_num_instances": 32,
+    "layer_width_scale": 1
+}
