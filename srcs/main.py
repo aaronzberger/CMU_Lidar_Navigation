@@ -17,10 +17,10 @@ from loss import ClassificationLoss, EmbeddingLoss
 from dataset import get_data_loader
 from unet import UNet
 from utils import get_model_name, load_config, get_writer, plot_pr_curve, mkdir_p
-from postprocess import compute_line_matches, compute_ap, extract_lines, compute_precision_recall
 from torchvision.utils import make_grid
 from shapely.geometry import LineString
 from tqdm import tqdm
+from config import base_dir, exp_name
 
 from sklearn.decomposition import PCA
 from bev import BEV
@@ -90,24 +90,27 @@ def save_images(exp_name, input, label_map, prediction, pcl_filename, truth_file
     config, learning_rate, batch_size, max_epochs = load_config(exp_name)
 
     # If not already created, make a directory to save the images
-    mkdir_p(config['image_save_dir'])
+    save_dir = os.path.join(base_dir, 'experiments', exp_name, 'images')
+    mkdir_p(save_dir)
         
     # Save an image of the ground truth lines
     # With the first ground truth data in the batch, convert channel order: 
     # CxWxH to WxHxC and convert to grayscale image format (0-255 and 8-bit int)
     truth = np.array(label_map.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
     image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
-    cv.imwrite(os.path.join(config['image_save_dir'], truth_filename), image_truth)
+    cv.imwrite(os.path.join(save_dir, truth_filename), image_truth)
 
     # Save an image of the point cloud:
-    pcl = np.array(input.cpu() * 255, dtype=np.uint8).transpose(2, 0, 1)
-    image_pcl = np.amax(pcl, axis=0)
-    cv.imwrite(os.path.join(config['image_save_dir'], pcl_filename), image_pcl)
+    pcl = np.array(input.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
+    image_pcl = np.amax(pcl, axis=2)
+    cv.imwrite(os.path.join(save_dir, pcl_filename), image_pcl)
 
     # Save an image of the U-Net prediction
+    # To better visualize the images, exagerate the difference between 0 and 1
+    prediction = torch.sigmoid(prediction)
     prediction_gray = np.array(prediction.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
     prediction_bgr = cv.cvtColor(prediction_gray, cv.COLOR_GRAY2BGR)
-    cv.imwrite(os.path.join(config['image_save_dir'], pred_filename), prediction_bgr)
+    cv.imwrite(os.path.join(save_dir, pred_filename), prediction_bgr)
     
 
 def validation_round(net, loss_fn, device, exp_name, epoch_num):
@@ -139,9 +142,6 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
                 # Update the progress bar with the current batch loss
                 progress.set_postfix(**{'batch loss':"{:.4f}".format(abs(loss.item()))})
                 val_loss += abs(loss.item())
-                
-                # To better visualize the images, exagerate the difference between 0 and 1
-                predictions = torch.sigmoid(predictions)
 
                 # After some epochs, save an image of the input, output, and ground truth for visualization
                 if config['visualize']:
@@ -257,18 +257,6 @@ def train(exp_name, device, output):
         train_writer.add_scalar('loss_epoch', epoch_loss, epoch + 1)
         print("Epoch {}: Training Loss: {:.5f}".format(
             epoch + 1, epoch_loss))
-        
-        # Run Validation
-#         if (epoch + 1) % 2 == 0:
-#             tic = time.time()
-#             val_metrics, _, _, log_images = eval_batch(config, net, loss_fn, test_data_loader, device)
-
-#             for tag, value in val_metrics.items():
-#                 val_writer.add_scalar(tag, value, epoch + 1)
-
-#             # val_writer.image_summary('Predictions', log_images, epoch + 1)
-#             print("Epoch {}|Time {:.3f}|Validation Loss: {:.5f}".format(
-#                 epoch + 1, time.time() - tic, val_metrics['loss']))
 
         # Save Checkpoint
         if (epoch + 1) == max_epochs or (epoch + 1) % config['save_every'] == 0:
@@ -293,7 +281,7 @@ def eval_loader(config, net, loss_fn, loader, loader_name, device):
         config (dictionary): dictionary of hyperparameter names and values for configuration
         net (torch.nn.Module): the network
         loss_fn (class): the loss function for the network
-        loader (Dataset): a data loader in which to retrieve the input
+        loader (Dataset): a data loader in which to retrieve the input (batch_size should be 1)
         loader_name (string): the name to give the data loader (only for printing)
         device (torch.device): the device on which to run the network
 
@@ -359,6 +347,12 @@ def evaluate_model(exp_name, device, plot=True):
     
     # Build the model
     net, loss_fn = build_model(config, device, train=False)
+    
+    print('''\nBuilt model:
+    Loss Function:   %s
+    Optimizer:       %s
+    Scheduler:       %s
+    ''' % ("Classification Loss" if isinstance(loss_fn, ClassificationLoss) else "Embedding Loss", "Adam", "None"))
 
     saved_ckpt_path = get_model_name(config)
 
@@ -478,7 +472,8 @@ def test(exp_name, device, image_id):
     pcl_filename = "EVAL_num_%s_point_cloud.jpg" % image_id
     prediction_filename = "EVAL_num_%s_unet_output.jpg" % image_id
 
-    save_images(exp_name, input, label_map[0], prediction[0], pcl_filename, truth_filename, prediction_filename)        
+    save_images(exp_name, input, label_map[0], prediction[0], pcl_filename, truth_filename, prediction_filename)
+    save_dir = os.path.join(base_dir, 'experiments', exp_name, 'images')
 
     print('''\nEvaluated Image %s:
     Forward Pass Time:   %s
@@ -486,13 +481,12 @@ def test(exp_name, device, image_id):
     Ground Truth Image   %s
     Point Cloud Image    %s
     U-Net Output Image   %s
-    ''' % (image_id, time, loss, os.path.join(config['image_save_dir'], truth_filename), os.path.join(config['image_save_dir'], pcl_filename), os.path.join(config['image_save_dir'], prediction_filename)))
+    ''' % (image_id, time, loss, os.path.join(save_dir, truth_filename), os.path.join(save_dir, pcl_filename), os.path.join(save_dir, prediction_filename)))
         
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='U-Net training module')
     parser.add_argument('mode', choices=['train', 'eval', 'test'], help='mode for the model')
-    parser.add_argument('--name', required=True, help="name of the experiment")
     parser.add_argument('--test_id', type=int, default=25, help="id of the image to test")
     parser.add_argument('--output', required=True, help="output of the model")
     args = parser.parse_args()
@@ -507,8 +501,8 @@ if __name__ == "__main__":
         device = torch.device('cpu')   
 
     if args.mode=='train':
-        train(args.name, device, args.output)
+        train(exp_name, device, args.output)
     if args.mode=='eval':
-        evaluate_model(args.name, device, plot=False)
+        evaluate_model(exp_name, device, plot=False)
     if args.mode=='test':
-        test(args.name, device, image_id=args.test_id)
+        test(exp_name, device, image_id=args.test_id)

@@ -1,2 +1,5 @@
-data_dir = "/home/remote_user1/ag_lidar_navigation/data"
-base_dir = "/home/aaron/ag_lidar_navigation-bev"
+# The name of the experiment (must be a folder in base_dir/experiments containing a config.json file)
+exp_name = 'default'
+
+# Base directory for this project (to save and open files)
+base_dir = '/home/aaron/ag_lidar_navigation-bev'

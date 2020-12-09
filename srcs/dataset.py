@@ -5,7 +5,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torch
 
-from config import data_dir
+from config import exp_name
 from bev import BEV # pointcloud_to_bev, visualize_bev, make_targets
 from utils import load_target_mean_std, load_config
 
@@ -118,7 +118,8 @@ class VineyardDataset(Dataset):
 
     
     def load_dataset(self, split):
-        split_file = os.path.join(data_dir, split + ".csv")
+        config, _, _, _ = load_config(exp_name)
+        split_file = os.path.join(config['data_dir'], split + ".csv")
 
         with open(split_file, 'r') as f:
             reader = csv.DictReader(f)

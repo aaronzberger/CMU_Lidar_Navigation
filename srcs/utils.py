@@ -12,11 +12,59 @@ import errno
 from math import sin, cos
 import logger
 
-from config import data_dir, base_dir
+from config import base_dir, exp_name
 from torch.utils.tensorboard import SummaryWriter
 
+
+def load_config(exp_name):
+    '''
+    Load the configuration file
+
+    Parameters:
+         name: the name of the 'experiment'
+    Returns:
+         config (dict): Python dictionary of hyperparameter name-value pairs
+         learning_rate (float): the learning rate of the optimzer
+         batch_size: batch size used during training
+         max_epochs: number of epochs to train the network fully
+    '''
+
+    path = os.path.join(base_dir, 'experiments', exp_name, 'config.json')
+    
+    with open(path) as file:
+        config = json.load(file)
+
+    assert config['name']==exp_name
+
+    return config, config['learning_rate'], config['batch_size'], config['max_epochs']
+
+def get_model_name(config, epoch=None):
+    '''
+    Generate a path to the relevant state dictionary for the model to load
+
+    Parameters:
+        config (dict): the configuration file
+        epoch (int): the epoch to resume from
+    Returns:
+        string: a path to the state dictionary
+    '''
+
+    name = config['name']
+
+    state_dict_folder = os.path.join(base_dir, 'experiments', name, 'state_dicts')
+    
+    if not os.path.exists(state_dict_folder):
+        mkdir_p(state_dict_folder)
+        
+    if epoch is None or not os.path.exists(os.path.join(state_dict_folder, str(epoch)+'epoch')):
+        epoch = config['resume_from']
+    
+    return os.path.join(state_dict_folder, str(epoch)+"epoch")
+
+
 def load_target_mean_std():
-    stats_path = os.path.join(data_dir, "statistics.npz")
+    config, _, _, _ = load_config(exp_name)
+    stats_path = os.path.join(config['data_dir'], "statistics.npz")
     data = np.load(stats_path)
     
     return data['target_mean'], data['target_std']
@@ -157,56 +205,6 @@ def get_points_in_a_rotated_box(corners, label_shape=[200, 175]):
 
     return pixels
 
-def load_config(exp_name):
-    """ Loads the configuration file
-
-     Args:
-         path: A string indicating the path to the configuration file
-     Returns:
-         config: A Python dictionary of hyperparameter name-value pairs
-         learning rate: The learning rate of the optimzer
-         batch_size: Batch size used during training
-         num_epochs: Number of epochs to train the network for
-         target_classes: A list of strings denoting the classes to
-                        build the classifer for
-    """
-
-    # TODO FIXME
-    path = os.path.join(base_dir, 'experiments', exp_name, 'config.json')
-    with open(path) as file:
-        config = json.load(file)
-
-    assert config['name']==exp_name
-
-    learning_rate = config["learning_rate"]
-    batch_size = config["batch_size"]
-    max_epochs = config["max_epochs"]
-
-    return config, learning_rate, batch_size, max_epochs
-
-def get_model_name(config, epoch=None):
-    """ Generate a name for the model consisting of all the hyperparameter values
-
-    Args:
-        name: Name of ckpt
-    Returns:
-        path: A string with the hyperparameter name and value concatenated
-    """
-    # path = "model_"
-    # path += "epoch{}_".format(config["max_epochs"])
-    # path += "bs{}_".format(config["batch_size"])
-    # path += "lr{}".format(config["learning_rate"])
-
-    name = config['name']
-    if epoch is None:
-        epoch = config['resume_from']
-
-    folder = os.path.join(base_dir, "experiments", name)
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-
-    path = os.path.join(folder, str(epoch)+"epoch")
-    return path
 
 def writefile(config, filename, value):
     path = os.path.join('experiments', config['name'], filename)
