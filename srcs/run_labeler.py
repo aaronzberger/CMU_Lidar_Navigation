@@ -7,7 +7,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import config
-from helpers import mkdir_p
+from utils import mkdir_p
 from keyboard_labeler import Labeler
 
 # Where to save the labels (doesn't need to exist yet)

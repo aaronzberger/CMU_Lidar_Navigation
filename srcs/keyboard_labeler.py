@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from math import radians, degrees
 
-from helpers import rotation_2d
+from utils import rotation_2d
 
 # Adapted from
 # https://stackoverflow.com/questions/33569626/matplotlib-responding-to-click-events

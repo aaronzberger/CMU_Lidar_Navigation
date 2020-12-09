@@ -9,7 +9,7 @@ import numpy as np
 import config
 
 from numpy_pc2 import pointcloud2_to_xyzi_array
-from helpers import mkdir_p
+from utils import mkdir_p
 
 pointcloud_topic = "/velodyne_points"
 ext = '.bag'

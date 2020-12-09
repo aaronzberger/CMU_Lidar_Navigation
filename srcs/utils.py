@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 # plt.switch_backend('agg')
+import errno
+from math import sin, cos
 import logger
 
 from config import data_dir, base_dir
@@ -236,6 +238,27 @@ def printgradnorm(self, grad_input, grad_output):
     print('grad_input size:', grad_input[0].size())
     print('grad_output size:', grad_output[0].size())
     print('grad_input norm:', grad_input[0].norm())
+
+
+def mkdir_p(path):
+    '''
+    Create a directory at a given path if it does not already exist
+
+    Parameters:
+        path (string): the full os.path location for the directory
+    '''
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+
+def rotation_2d(theta):
+    return  np.array(
+        [[cos(theta), -sin(theta)],
+         [sin(theta),  cos(theta)]])
 
 if __name__ == "__main__":
     maskFOV_on_BEV(0)

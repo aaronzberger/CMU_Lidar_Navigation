@@ -16,12 +16,11 @@ import os
 from loss import ClassificationLoss, EmbeddingLoss
 from dataset import get_data_loader
 from unet import UNet
-from utils import get_model_name, load_config, get_writer, plot_pr_curve
+from utils import get_model_name, load_config, get_writer, plot_pr_curve, mkdir_p
 from postprocess import compute_line_matches, compute_ap, extract_lines, compute_precision_recall
 from torchvision.utils import make_grid
 from shapely.geometry import LineString
 from tqdm import tqdm
-from helpers import mkdir_p
 
 from sklearn.decomposition import PCA
 from bev import BEV

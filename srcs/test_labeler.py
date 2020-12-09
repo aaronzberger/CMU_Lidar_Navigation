@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 from numpy_pc2 import pointcloud2_to_xyzi_array
 import config
-from helpers import mkdir_p
+from utils import mkdir_p
 from keyboard_labeler import Labeler
 
 label_dir = config.data_dir + "labels/"

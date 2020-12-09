@@ -7,7 +7,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import config
-from helpers import mkdir_p
+from utils import mkdir_p
 
 from plane_fitter import fit_plane
 
