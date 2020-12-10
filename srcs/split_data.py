@@ -1,10 +1,12 @@
-from sys import argv
-import argparse
-import os
-import errno
-from glob import glob
+'''
+Usage: split_data.py
 
+Writes 2 csv files containing paths to the raw data and labels. This is used for training.
+'''
+
+import os
 import csv
+
 from config import exp_name
 from utils import load_config
 

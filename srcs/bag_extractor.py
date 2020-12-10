@@ -1,3 +1,10 @@
+'''
+Usage: bag_extractor.py
+
+Extracts point clouds from bag files in a directory and saves them 
+in the correct format and location
+'''
+
 from sys import argv
 import os
 import errno

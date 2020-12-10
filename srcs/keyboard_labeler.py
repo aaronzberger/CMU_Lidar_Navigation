@@ -1,6 +1,7 @@
+from math import radians
+
 import numpy as np
 from matplotlib import pyplot as plt
-from math import radians, degrees
 
 from utils import rotation_2d
 

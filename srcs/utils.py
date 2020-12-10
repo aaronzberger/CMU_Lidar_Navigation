@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 # plt.switch_backend('agg')
 import errno
 from math import sin, cos
-import logger
 
 from config import base_dir, exp_name
 from torch.utils.tensorboard import SummaryWriter
