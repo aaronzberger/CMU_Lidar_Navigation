@@ -11,9 +11,9 @@ from utils import load_target_mean_std, load_config
 
 
 class VineyardDataset(Dataset):
-    splits = ["test", "train", "val"]
+    splits = ['test', 'train', 'val']
 
-    def __init__(self, geom, split="train", 
+    def __init__(self, geom, split='train', 
             normalize_reg_map=False):
         self.bev = BEV(geom)
         self.reg_map_channels = self.bev.reg_map_channels
@@ -21,30 +21,30 @@ class VineyardDataset(Dataset):
         if split in self.splits:
             self.dataset = self.load_dataset(split)
         else:
-            raise ValueError("Split must be one of {train, test, val}")
+            raise ValueError('Split must be one of {train, test, val}')
 
         if normalize_reg_map:
-#             print("Loading target mean and standard deviation")
+#             print('Loading target mean and standard deviation')
             self.target_mean, self.target_std = load_target_mean_std()
         else:
             self.target_mean, self.target_std = \
                     np.zeros(self.reg_map_channels),\
                     np.ones(self.reg_map_channels)
-#             print("Not normalizing regression map")
+#             print('Not normalizing regression map')
 
     def __len__(self):
         return len(self.dataset)
 
     def get_pointcloud(self, item, frame='bev'):
         if frame != 'bev' and frame != 'orig':
-            raise ValueError("frame must be one of {frame, orig}")
+            raise ValueError('frame must be one of {frame, orig}')
 
         raw_path, _ = self.dataset[item]
         raw_data = np.load(raw_path)
 
         pts = self.bev.standardize_pointcloud(raw_data['pointcloud'][:,0:3])
         
-        if frame == "bev":
+        if frame == 'bev':
             pts -= self.bev.mins
             pts /= self.bev.resolutions[0]
 
@@ -53,10 +53,10 @@ class VineyardDataset(Dataset):
 
     def get_labels(self, item, order='xyxy', frame='bev'):
         if order != 'xxyy' and order != 'xyxy':
-            raise ValueError("order must be one of {xxyy, xyxy}")
+            raise ValueError('order must be one of {xxyy, xyxy}')
 
         if frame != 'bev' and frame != 'orig':
-            raise ValueError("frame must be one of {frame, orig}")
+            raise ValueError('frame must be one of {frame, orig}')
 
         _, label_path = self.dataset[item]
         label_data = np.load(label_path)
@@ -64,7 +64,7 @@ class VineyardDataset(Dataset):
       
         labels_xxyy = self.bev.crop_labels(labels)
 
-        if frame == "bev":
+        if frame == 'bev':
             labels_xxyy = self.bev.labels_to_bev(labels_xxyy)
 
         if len(labels) > 0:
@@ -119,15 +119,15 @@ class VineyardDataset(Dataset):
     
     def load_dataset(self, split):
         config, _, _, _ = load_config(exp_name)
-        split_file = os.path.join(config['data_dir'], split + ".csv")
+        split_file = os.path.join(config['data_dir'], split + '.csv')
 
         with open(split_file, 'r') as f:
             reader = csv.DictReader(f)
             dataset = []
             for row in reader:
-                dataset.append((row["raw"], row["label"]))
+                dataset.append((row['raw'], row['label']))
 #CAUSED ERRORS IN EXECUTION
-            # print(f"Found {len(dataset)} examples")
+            # print(f'Found {len(dataset)} examples')
 
         return dataset
 
@@ -146,11 +146,11 @@ def get_data_loader(batch_size, geometry, shuffle_test=False):
         int: length of the testing/validation dataset
     '''
     train_dataset = VineyardDataset(
-            geometry, split="train")
+            geometry, split='train')
     train_data_loader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size, num_workers=3)
 
     val_dataset = VineyardDataset(
-            geometry, split="val")
+            geometry, split='val')
     val_data_loader = DataLoader(val_dataset, shuffle=shuffle_test, batch_size=batch_size, num_workers=8)
     
     return train_data_loader, val_data_loader, len(train_dataset), len(val_dataset)
@@ -158,7 +158,7 @@ def get_data_loader(batch_size, geometry, shuffle_test=False):
 def find_instance_num_distribution(config_name):
     config, _, _, _ = load_config(config_name)
     datasets = [
-        VineyardDataset(config["geometry"], split=split) 
+        VineyardDataset(config['geometry'], split=split) 
         for split in VineyardDataset.splits]
     
     counts = [[] for _ in datasets] 
@@ -173,8 +173,8 @@ def find_instance_num_distribution(config_name):
         print(name, counts, counts / np.sum(counts))
 
 def find_reg_target_std_and_mean():
-    config, _, _, _ = load_config("default")
-    dataset = VineyardDataset(config["geometry"], normalize_reg_map=False)  
+    config, _, _, _ = load_config('default')
+    dataset = VineyardDataset(config['geometry'], normalize_reg_map=False)  
     reg_targets = [[] for _ in range(dataset.reg_map_channels)]
 
     for _, label_map, _, _, _ in dataset:
@@ -191,16 +191,16 @@ def find_reg_target_std_and_mean():
     stds = reg_targets.std(axis=1)
 
     np.set_printoptions(precision=3, suppress=True)
-    print("Means", means)
-    print("Stds", stds)
+    print('Means', means)
+    print('Stds', stds)
     
     return means, stds
 
-if __name__ == "__main__":
-    config, _, _, _ = load_config("default")
-    dataset = VineyardDataset(config["geometry"])
+if __name__ == '__main__':
+    config, _, _, _ = load_config('default')
+    dataset = VineyardDataset(config['geometry'])
 
     print(dataset[0])
     print(len(dataset))
 
-    find_instance_num_distribution("10meter")
+    find_instance_num_distribution('10meter')

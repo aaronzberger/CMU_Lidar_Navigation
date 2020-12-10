@@ -11,7 +11,7 @@ from config import exp_name
 from numpy_pc2 import pointcloud2_to_xyzi_array
 from utils import mkdir_p, load_config
 
-pointcloud_topic = "/velodyne_points"
+pointcloud_topic = '/velodyne_points'
 ext = '.bag'
 
 # Directory to save the .npz files containing point clouds
@@ -19,11 +19,11 @@ config, _, _, _ = load_config(exp_name)
 save_dir = os.path.join(config['data_dir'], 'raw')
 
 # Directory containing the original bag files
-bags_dir = "/home/aaron/Documents/velo_bags/bags/"
+bags_dir = '/home/aaron/Documents/velo_bags/bags/'
 
 # Collect the names of all the bags in the directory specified above
 bagnames = [y for x in os.walk(bags_dir) for y in glob(os.path.join(x[0], '*' + ext))]
-filenames = [b[len(bags_dir):-len(ext)].replace("/","_") for b in bagnames]
+filenames = [b[len(bags_dir):-len(ext)].replace('/','_') for b in bagnames]
 
 num_pcl = 0
 

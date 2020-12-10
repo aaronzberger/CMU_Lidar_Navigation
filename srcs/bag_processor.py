@@ -35,13 +35,13 @@ class BagProcessor(object):
 
         # bagname = 'data/rivendale-row_02_e2w_2018-10-05-12-11-26.bag'
         # bagname = '/home/john/mnt/navigation_data/rivendale-small_row_03_e2w_2018-10-05-13-33-01.bag'
-        # bagname = "/home/john/mnt/navigation_data/" + argv[1]
+        # bagname = '/home/john/mnt/navigation_data/' + argv[1]
 
-        h = Header(frame_id="base_link")
+        h = Header(frame_id='base_link')
         q = Quaternion(0.,0.25881905,0.,0.96592583)
         xyz = Vector3(0.14145, 0.0, 1.5309) 
         t = Transform(rotation=q, translation=xyz)
-        self.base_to_quan = TransformStamped(child_frame_id="quanergySensor", header=h, transform=t)
+        self.base_to_quan = TransformStamped(child_frame_id='quanergySensor', header=h, transform=t)
         self.map_to_base = TransformStamped()
         self.map_to_base_valid = False
 
@@ -110,7 +110,7 @@ class BagProcessor(object):
                 pts_map = None
                     
                 if self.proc_pc:
-                    print("Processing pointcloud number", count)
+                    print('Processing pointcloud number', count)
                     pc_base = do_transform_cloud(msg, self.base_to_quan)
 
                     pts_base = pointcloud2_to_xyz_array(pc_base)

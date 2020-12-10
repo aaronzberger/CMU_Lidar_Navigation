@@ -12,15 +12,15 @@ except ImportError:
 
 class Logger(object):
     def __init__(self, log_dir):
-        """Create a summary writer logging to log_dir."""
+        '''Create a summary writer logging to log_dir.'''
         self.writer = SummaryWriter(log_dir)
 
     def scalar_summary(self, tag, value, step):
-        """Log a scalar variable."""
+        '''Log a scalar variable.'''
         self.writer.add_scalar(tag, value, step)
 
     # def image_summary(self, tag, images, step):
-    #     """Log a list of images."""
+    #     '''Log a list of images.'''
     #
     #     img_summaries = []
     #     for i, img in enumerate(images):
@@ -29,7 +29,7 @@ class Logger(object):
     #             s = StringIO()
     #         except:
     #             s = BytesIO()
-    #         scipy.misc.toimage(img).save(s, format="png")
+    #         scipy.misc.toimage(img).save(s, format='png')
     #
     #         # Create an Image object
     #         img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
@@ -43,7 +43,7 @@ class Logger(object):
     #     self.writer.add_summary(summary, step)
     #
     # def histo_summary(self, tag, values, step, bins=1000):
-    #     """Log a histogram of the tensor of values."""
+    #     '''Log a histogram of the tensor of values.'''
     #
     #     # Create a histogram using numpy
     #     counts, bin_edges = np.histogram(values, bins=bins)

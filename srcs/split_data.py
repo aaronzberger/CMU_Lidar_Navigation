@@ -24,7 +24,7 @@ def write_split(splitname, files):
         splitname (string): the name of the portion of the data (train, test, val, etc)
         files (arr): list of tuples of raw path and label path
     '''
-    with open(os.path.join(config['data_dir'], splitname + ".csv"), 'w') as f:
+    with open(os.path.join(config['data_dir'], splitname + '.csv'), 'w') as f:
         writer = csv.DictWriter(f, fieldnames=['raw', 'label'])
         writer.writeheader()
 
@@ -45,7 +45,7 @@ for d in dirs:
     files = sorted(list(files), key=lambda x: int(x[:-4]) )
 
     for f in files:
-        if not f.endswith(".npz"):
+        if not f.endswith('.npz'):
             continue
 
         label_path = os.path.join(label_dir, d, f)
@@ -68,8 +68,8 @@ train_end = int(n_files * train_percent)
 train_filenames = filenames[:train_end]
 test_filenames = filenames[train_end:]
 
-write_split("train", train_filenames)
-write_split("test", test_filenames)
+write_split('train', train_filenames)
+write_split('test', test_filenames)
 
 print('''
     Data split:

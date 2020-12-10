@@ -11,32 +11,32 @@ from utils import mkdir_p
 
 from plane_fitter import fit_plane
 
-label_dir = config.data_dir + "labels/"
-raw_dir = config.data_dir + "raw/"
+label_dir = config.data_dir + 'labels/'
+raw_dir = config.data_dir + 'raw/'
 
-if len(argv) != 2 or argv[1] not in ("static", "moving"):
-    print("Usage: labeler.py {static, moving}")
+if len(argv) != 2 or argv[1] not in ('static', 'moving'):
+    print('Usage: labeler.py {static, moving}')
 
 dirs = [x for x in next(os.walk(raw_dir))[1]]
-static = (argv[1] == "static")
+static = (argv[1] == 'static')
 
 if static:
-    dirs = [x for x in dirs if x.startswith("stationary")]
+    dirs = [x for x in dirs if x.startswith('stationary')]
 else:
-    dirs = [x for x in dirs if x.startswith("moving")]
+    dirs = [x for x in dirs if x.startswith('moving')]
 
 rolls = []
 pitches = []
 for d in dirs:
     all_pts = []
     mkdir_p(os.path.join(label_dir, d))
-    stationary = d.startswith("stationary")
+    stationary = d.startswith('stationary')
 
     files = os.listdir(os.path.join(raw_dir, d))
     files = sorted(list(files), key=lambda x: int(x[:-4]) )
 
     for f in files:
-        if not f.endswith(".npz"):
+        if not f.endswith('.npz'):
             continue
 
         f_path = os.path.join(raw_dir, d, f)

@@ -13,8 +13,8 @@ class ClassificationLoss(nn.Module):
         self.num_classes = num_classes
         self.device = device
 
-        # self.alpha = config["alpha"]
-        self.beta = config["beta"]
+        # self.alpha = config['alpha']
+        self.beta = config['beta']
 
         self.discriminative_loss = DiscriminativeLoss(0.5, 3.0, 2)
 
@@ -82,7 +82,7 @@ class EmbeddingLoss(nn.Module):
 
         self.device = device
         self.discriminative_loss = DiscriminativeLoss(0.5, 3.0, 2)
-        self.max_num_instances = config["max_num_instances"]
+        self.max_num_instances = config['max_num_instances']
 
     def forward(self, preds, targets, n_instances):
         return self.discriminative_loss(preds, targets, n_instances,
@@ -90,12 +90,12 @@ class EmbeddingLoss(nn.Module):
 
 def test():
     from utils import load_config
-    config, _, _, _ = load_config("default")
+    config, _, _, _ = load_config('default')
 
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
-        device = torch.device("cuda")
+        device = torch.device('cuda')
 
     loss = CustomLoss(device, config)
 
@@ -106,5 +106,5 @@ def test():
     print(loss)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     test()

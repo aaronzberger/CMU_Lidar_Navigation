@@ -21,7 +21,7 @@ label_dir = os.path.join(config['data_dir'], 'labels')
 raw_dir = os.path.join(config['data_dir'], 'raw')
 
 if len(argv) != 1:
-    print("NOTE: No arguments expected for this file.")
+    print('NOTE: No arguments expected for this file.')
 
 # Gather the names of all directories of point cloud files
 dirs = [x for x in next(os.walk(raw_dir))[1]]
@@ -49,7 +49,7 @@ with tqdm(total=num_raw_files, desc='Labeling: ', unit='pcl', initial=num_labels
         files = sorted(list(files), key=lambda x: int(x[:-4]) )
 
         for f in files:
-            if not f.endswith(".npz"):
+            if not f.endswith('.npz'):
                 continue
 
             label_path = os.path.join(label_dir, d, f)

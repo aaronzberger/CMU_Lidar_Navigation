@@ -25,7 +25,7 @@ from time import time
 #
 #     return a, b, c, d
 
-# points = np.load("cloud.npy")
+# points = np.load('cloud.npy')
 
 def fit_plane(points):
     # fig = plt.figure()
@@ -84,8 +84,8 @@ def fit_plane(points):
     # ax.scatter(X2, Y2, Z2, c=Z2, cmap='summer')
     # ax.scatter(X, Y, Z, c=Z, cmap='copper')
 
-    # print("coef", ransac.estimator_.coef_)
-    # print("intercept", ransac.estimator_.intercept_)
+    # print('coef', ransac.estimator_.coef_)
+    # print('intercept', ransac.estimator_.intercept_)
     # print(ransac.inlier_mask_.shape)
     # print(points.shape)
 

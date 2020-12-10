@@ -9,7 +9,9 @@ from utils import rotation_2d
 # https://stackoverflow.com/questions/29277080/efficient-matplotlib-redrawing
 
 class Labeler(object):
-    def __init__(self): 
+    def __init__(self, view_only=False):
+        self.view_only = view_only
+
         # Distance between rows
         self.row_spacing = 3.0
 
@@ -28,6 +30,7 @@ class Labeler(object):
         self.lines = []
 
     def setup_plot(self):
+        '''Set figure size and boundaries of the point cloud, and setup the input callbacks'''
         # The 'figsize' parameter should be adjusted for your screen size
         self.fig = plt.figure(figsize=(15.0, 15.0))
         self.ax = self.fig.add_subplot(1, 1, 1)
@@ -35,18 +38,19 @@ class Labeler(object):
         plt.tight_layout()
 
         # Set the limits for X (forward/backwards) and Y (side/side)
-        self.ax.set_xlim(-20, 20)
-        self.ax.set_ylim(-10, 10)
+        self.ax.set_xlim(-8, 8)
+        self.ax.set_ylim(-8, 8)
 
         self.last_point = None
 
-        for k in plt.rcParams.keys():
-            if k.startswith('keymap'):
-                plt.rcParams[k] = ''
+        if not self.view_only:
+            for k in plt.rcParams.keys():
+                if k.startswith('keymap'):
+                    plt.rcParams[k] = ''
 
-        # Callbacks for button and mouse clicks
-        self.fig.canvas.mpl_connect('key_press_event', self.on_key)
-        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+            # Callbacks for button and mouse clicks
+            self.fig.canvas.mpl_connect('key_press_event', self.on_key)
+            self.fig.canvas.mpl_connect('button_press_event', self.on_click)
 
     def points_to_lines(self, P1, P2):
         '''
@@ -71,11 +75,11 @@ class Labeler(object):
             point: Nx2 numpy array of [x, y]
             lines: Nx3 numpy array of [[a, b, c], ...]
         '''
-
         return (np.abs(np.dot([[point[0], point[1], 1]], lines.T))
                 / np.linalg.norm(lines[:,0:2], axis=1))
 
     def point_line_projection(self, point, line):
+        '''Transform a click from any coordinate to the coordinate closest to the given line'''
         l_abc = line.reshape(1, 3)
         l_ab0 = (l_abc * np.array([1, 1, 0])).reshape(1, 3)
         p = np.array([point[0], point[1], 1])
@@ -91,12 +95,7 @@ class Labeler(object):
 
         return proj[0:2]
 
-
-    def add_annotation(self, p1, p2):
-        """
-        Add annotation (sensor frame)
-        """
-
+    def add_line(self, p1, p2):
         # Convert to row frame
         R_sensor_to_row = rotation_2d(self.row_to_sensor_angle).T
         t_sensor_to_row = -R_sensor_to_row.dot(self.row_to_sensor_t)
@@ -106,7 +105,6 @@ class Labeler(object):
 
         line = np.concatenate((p1_row, p2_row), axis=0)
         self.lines.append(line)
-
 
     def on_click(self, event):
         point = (event.xdata, event.ydata)
@@ -130,12 +128,12 @@ class Labeler(object):
                 (event.xdata, event.ydata),
                 row_lines[i])
 
-        # On a left click, store the point TODO figure this out
+        # On a left click, store the point
         if event.button == 1:
             if self.last_point is None:
                 self.last_point = click
             else:
-                self.add_annotation(click, self.last_point)
+                self.add_line(click, self.last_point)
                 self.last_point = None
         
         # On a right click, delete the line
@@ -144,9 +142,8 @@ class Labeler(object):
 
         self.redraw()
 
-
     def on_key(self, event):
-        # On a key press, move or rotate the lines accordingly
+        # On a key press, move or rotate the lines or guides accordingly
         INC_AMOUNT_T = 0.01
 
         # Move left and right
@@ -182,7 +179,6 @@ class Labeler(object):
         self.last_point = None
         self.redraw()
 
-
     def transform_rows(self, lines, t, angle):
         R = rotation_2d(angle)
         coords = lines.reshape(-1, 2).T
@@ -190,7 +186,6 @@ class Labeler(object):
         lines = coords.reshape(-1, 4)
 
         return lines
-
 
     def draw_row_guides(self):
         self.ax.lines = []
@@ -203,13 +198,11 @@ class Labeler(object):
             pts = line.reshape(2, 2)
             self.draw_line(pts[:,0], pts[:,1], color='grey')
 
-
     def draw_line(self, x, y, color=None):
         lines = self.ax.plot(x,y, c=color)
 
         for line in lines:
             self.ax.draw_artist(line) 
-
 
     def redraw(self):
         '''
@@ -217,15 +210,16 @@ class Labeler(object):
         pre-rendered background lidar points all at once and then 
         drawing lines on top
         '''
-
+        # Re-calculate the rows in case they are changed by the keyboard callback
         self.rows = np.array([
-            [-self.row_radius, n*self.row_spacing/2., self.row_radius, n*self.row_spacing/2.] 
+            [-self.row_radius, n*self.row_spacing/2., self.row_radius, n*self.row_spacing/2.]
             for n in range(-7, 7+2, 2)
         ])
 
         self.fig.canvas.restore_region(self.background)
         self.draw_row_guides()
 
+        # Re-draw the lines that are already labeled
         lines = self.get_lines()
         for line in lines:
             pts = line.reshape(2, 2)
@@ -235,6 +229,12 @@ class Labeler(object):
 
 
     def get_labels(self):
+        '''
+        Retrieve the labels after drawing is completed
+
+        Returns:
+            arr: the labels in 'xyxy' format
+        '''
         lines = self.get_lines()
 
         if len(lines) == 0:
@@ -257,19 +257,49 @@ class Labeler(object):
                 self.row_to_sensor_angle)
             return lines
 
-
     def plot_points(self, pts):
+        '''
+        Plot a point cloud - for use in the interactive labeler
+
+        Parameters:
+            pts (arr): the raw point cloud
+        '''
         self.setup_plot()
 
         # Plot the Lidar points
         self.ax.scatter(
             pts[:,0], pts[:,1], c=pts[:,2], vmin=-1,
             vmax=1, s=1., cmap='jet'
-        ) 
+        )
 
         self.fig.canvas.draw()
         self.background = self.fig.canvas.copy_from_bbox(self.fig.bbox)
 
         self.redraw()
+
+        plt.show()
+
+    def plot_points_and_labels(self, pts, labels):
+        '''
+        Plot a point cloud and lines - for use in viewing the labels and points as one image (read-only)
+
+        Parameters:
+            pts (arr): the raw point cloud
+            labels (arr): an array of arrays of tuples containing Xs and Ys
+        '''
+        self.setup_plot()
+
+        # Plot the Lidar points
+        self.ax.scatter(
+            pts[:,0], pts[:,1], c=pts[:,2], vmin=-1,
+            vmax=1, s=1., cmap='jet'
+        )
+
+        # Plot the labels
+        for label in labels:
+            self.ax.plot(label[0], label[1], 'r')
+
+        self.fig.canvas.draw()
+        self.background = self.fig.canvas.copy_from_bbox(self.fig.bbox)
 
         plt.show()

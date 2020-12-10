@@ -5,8 +5,8 @@ import numpy as np
 
 
 def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
-    """pred: bs, height * width, n_filters
-       gt: bs, height * width, n_instances"""
+    '''pred: bs, height * width, n_filters
+       gt: bs, height * width, n_instances'''
 
     bs, n_loc, n_filters = pred.size()
     n_instances = gt.size(2)
@@ -31,7 +31,7 @@ def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
             0) / _gt_expanded_sample.sum(0)  # n_objects, n_filters
 
 
-        # print("_mean_sample isnan:", torch.any(_mean_sample != _mean_sample))
+        # print('_mean_sample isnan:', torch.any(_mean_sample != _mean_sample))
 
         if (max_n_objects - _n_objects_sample) != 0:
             n_fill_objects = int(max_n_objects - _n_objects_sample)
@@ -51,9 +51,9 @@ def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
 
 
 def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
-    """pred: bs, height * width, n_filters
+    '''pred: bs, height * width, n_filters
        gt: bs, height * width, n_instances
-       means: bs, n_instances, n_filters"""
+       means: bs, n_instances, n_filters'''
 
     bs, n_loc, n_filters = pred.size()
     n_instances = gt.size(2)
@@ -83,7 +83,7 @@ def calculate_variance_term(pred, gt, means, n_objects, delta_v, norm=2):
 
 
 def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
-    """means: bs, n_instances, n_filters"""
+    '''means: bs, n_instances, n_filters'''
 
     bs, n_instances, n_filters = means.size()
 
@@ -120,7 +120,7 @@ def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
 
 
 def calculate_regularization_term(means, n_objects, norm):
-    """means: bs, n_instances, n_filters"""
+    '''means: bs, n_instances, n_filters'''
 
     bs, n_instances, n_filters = means.size()
 
@@ -139,9 +139,9 @@ def calculate_regularization_term(means, n_objects, norm):
 
 def discriminative_loss(input, target, n_objects,
                         max_n_objects, delta_v, delta_d, norm, usegpu):
-    """input: bs, n_filters, fmap, fmap
+    '''input: bs, n_filters, fmap, fmap
        target: bs, n_instances, fmap, fmap
-       n_objects: bs"""
+       n_objects: bs'''
 
     alpha = beta = 1.0
     gamma = 0.001
@@ -157,8 +157,8 @@ def discriminative_loss(input, target, n_objects,
     cluster_means = calculate_means(
         input, target, n_objects, max_n_objects, usegpu)
 
-    # print("cluster_means_size", cluster_means.size())
-    # print("cluster_means isnan:", torch.any(cluster_means != cluster_means))
+    # print('cluster_means_size', cluster_means.size())
+    # print('cluster_means isnan:', torch.any(cluster_means != cluster_means))
 
     var_term = calculate_variance_term(
         input, target, cluster_means, n_objects, delta_v, norm)
@@ -166,7 +166,7 @@ def discriminative_loss(input, target, n_objects,
         cluster_means, n_objects, delta_d, norm, usegpu)
     reg_term = calculate_regularization_term(cluster_means, n_objects, norm)
 
-    # print("var_term", var_term.item(), "dist_term", dist_term.item(), "reg_term", reg_term.item())
+    # print('var_term', var_term.item(), 'dist_term', dist_term.item(), 'reg_term', reg_term.item())
 
     loss = alpha * var_term + beta * dist_term + gamma * reg_term
 
@@ -197,8 +197,8 @@ class DiscriminativeLoss(_Loss):
     def forward(self, input, target, n_objects, max_n_objects):
         assert not target.requires_grad
 
-        # print("input", input.size(), ", target", target.size(),
-        #         ", n_objects", n_objects, ", max_n_objects",
+        # print('input', input.size(), ', target', target.size(),
+        #         ', n_objects', n_objects, ', max_n_objects',
         #         max_n_objects)
 
 

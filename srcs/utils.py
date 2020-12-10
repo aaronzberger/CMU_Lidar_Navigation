@@ -59,12 +59,12 @@ def get_model_name(config, epoch=None):
     if epoch is None or not os.path.exists(os.path.join(state_dict_folder, str(epoch)+'epoch')):
         epoch = config['resume_from']
     
-    return os.path.join(state_dict_folder, str(epoch)+"epoch")
+    return os.path.join(state_dict_folder, str(epoch)+'epoch')
 
 
 def load_target_mean_std():
     config, _, _, _ = load_config(exp_name)
-    stats_path = os.path.join(config['data_dir'], "statistics.npz")
+    stats_path = os.path.join(config['data_dir'], 'statistics.npz')
     data = np.load(stats_path)
     
     return data['target_mean'], data['target_std']
@@ -102,14 +102,14 @@ def get_writer(config, mode='train'):
 def plot_pr_curve(precisions, recalls, legend, name='PRCurve'):
 
     fig, ax = plt.subplots()
-    ax.plot(recalls, precisions, ".")
-    ax.set_title("Precision Recall Curve")
-    ax.set_xlabel("Recall")
-    ax.set_ylabel("Precision")
+    ax.plot(recalls, precisions, '.')
+    ax.set_title('Precision Recall Curve')
+    ax.set_xlabel('Recall')
+    ax.set_ylabel('Precision')
     ax.legend([legend], loc='upper right')
-    path = os.path.join("Figures", name)
+    path = os.path.join('Figures', name)
     fig.savefig(path)
-    print("PR Curve saved at", path)
+    print('PR Curve saved at', path)
 
 def get_points_in_a_rotated_box(corners, label_shape=[200, 175]):
     def minY(x0, y0, x1, y1, x):
@@ -258,5 +258,5 @@ def rotation_2d(theta):
         [[cos(theta), -sin(theta)],
          [sin(theta),  cos(theta)]])
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     maskFOV_on_BEV(0)

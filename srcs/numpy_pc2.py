@@ -18,7 +18,7 @@
 #    from this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# 'AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
 # FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
 # COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
@@ -36,7 +36,7 @@
 '''
 Functions for working with PointCloud2.
 '''
-__docformat__ = "restructuredtext en"
+__docformat__ = 'restructuredtext en'
 
 import numpy as np
 
@@ -143,9 +143,9 @@ def pointcloud2_to_array(cloud_msg, split_rgb=False, remove_padding=True):
     return np.reshape(cloud_arr, (cloud_msg.height, cloud_msg.width))
 
 def array_to_xyz_pointcloud2f(cloud_arr, stamp=None, frame_id=None, merge_rgb=False):
-    """ convert an Nx3 float array to an xyz point cloud.
+    ''' convert an Nx3 float array to an xyz point cloud.
     beware of numerical issues when casting from other types to float32.
-    """
+    '''
     cloud_arr = np.asarray(cloud_arr, dtype=np.float32)
     if not cloud_arr.ndim==2: raise ValueError('cloud_arr must be 2D array')
     if not cloud_arr.shape[1]==3: raise ValueError('cloud_arr shape must be Nx3')
@@ -153,9 +153,9 @@ def array_to_xyz_pointcloud2f(cloud_arr, stamp=None, frame_id=None, merge_rgb=Fa
     return array_to_pointcloud2(xyz, stamp=stamp, frame_id=frame_id, merge_rgb=merge_rgb)
 
 def array_to_xyzi_pointcloud2f(cloud_arr, stamp=None, frame_id=None, merge_rgb=False):
-    """ convert an Nx4 float array to an xyzi point cloud.
+    ''' convert an Nx4 float array to an xyzi point cloud.
     beware of numerical issues when casting from other types to float32.
-    """
+    '''
     cloud_arr = np.asarray(cloud_arr, dtype=np.float32)
     if not cloud_arr.ndim==2: raise ValueError('cloud_arr must be 2D array')
     if not cloud_arr.shape[1]==4: raise ValueError('cloud_arr shape must be Nx4')
@@ -165,9 +165,9 @@ def array_to_xyzi_pointcloud2f(cloud_arr, stamp=None, frame_id=None, merge_rgb=F
     return array_to_pointcloud2(xyzi, stamp=stamp, frame_id=frame_id, merge_rgb=merge_rgb)
 
 def arrays_to_xyzi_pointcloud2f(cloud_arr, intensity_array, stamp=None, frame_id=None, merge_rgb=False):
-    """ convert an Nx3 float array and N array to an xyzi point cloud.
+    ''' convert an Nx3 float array and N array to an xyzi point cloud.
     beware of numerical issues when casting from other types to float32.
-    """
+    '''
     cloud_arr = np.asarray(cloud_arr, dtype=np.float32)
     if not cloud_arr.ndim==2: raise ValueError('cloud_arr must be 2D array')
     if not cloud_arr.shape[1]==3: raise ValueError('cloud_arr shape must be Nx3')
@@ -181,9 +181,9 @@ def arrays_to_xyzi_pointcloud2f(cloud_arr, intensity_array, stamp=None, frame_id
     return array_to_pointcloud2(xyzi, stamp=stamp, frame_id=frame_id, merge_rgb=merge_rgb)
 
 def array_to_xyzl_pointcloud2f(cloud_arr, stamp=None, frame_id=None, merge_rgb=False):
-    """ convert an Nx4 float array to an xyzi point cloud.
+    ''' convert an Nx4 float array to an xyzi point cloud.
     beware of numerical issues when casting from other types to float32.
-    """
+    '''
     cloud_arr = np.asarray(cloud_arr, dtype=np.float32)
     if not cloud_arr.ndim==2: raise ValueError('cloud_arr must be 2D array')
     if not cloud_arr.shape[1]==4: raise ValueError('cloud_arr shape must be Nx3')
@@ -194,10 +194,10 @@ def array_to_xyzl_pointcloud2f(cloud_arr, stamp=None, frame_id=None, merge_rgb=F
 
 
 def array_to_xyz_pointcloud2(cloud_arr, stamp=None, frame_id=None, merge_rgb=False):
-    """ convert an Nx3 float array to an xyz point cloud.
+    ''' convert an Nx3 float array to an xyz point cloud.
     preserves (scalar) dtype of input.
     TODO: untested
-    """
+    '''
     cloud_arr = np.asarray(cloud_arr)
     if not cloud_arr.ndim==2: raise ValueError('cloud_arr must be 2D array')
     if not cloud_arr.shape[1]==3: raise ValueError('cloud_arr shape must be Nx3')

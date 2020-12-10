@@ -1,5 +1,5 @@
 import sys
-sys.path.append("/home/aaron/ag_lidar_navigation-bev/srcs/models/")
+sys.path.append('/home/aaron/ag_lidar_navigation-bev/srcs/models/')
 
 import logging
 import torch
@@ -26,7 +26,7 @@ from sklearn.decomposition import PCA
 from bev import BEV
 
 
-def build_model(config, device, output="class", train=True):
+def build_model(config, device, output='class', train=True):
     '''
     Build the U-Net model
     
@@ -42,25 +42,25 @@ def build_model(config, device, output="class", train=True):
         optimizer (torch.optim): an optimizer (if train=True)
         scheduler (torch.optim): a scheduler (if train=True)
     '''
-    if output == "class":
+    if output == 'class':
         out_channels = 1
     else:
-        out_channels = config["embedding_dim"]
+        out_channels = config['embedding_dim']
         
     net = UNet(config['geometry'], use_batchnorm=config['use_bn'], output_dim=out_channels,
-            feature_scale=config["layer_width_scale"])
+            feature_scale=config['layer_width_scale'])
 
     # Determine the loss function to be used (if you're not sure, use ClassificationLoss)
-    if output == "class":
+    if output == 'class':
         loss_fn = ClassificationLoss(device, config, num_classes=1)
-    elif output == "embedding":
+    elif output == 'embedding':
         loss_fn = EmbeddingLoss(device, config, embedding_dim=config['embedding_dim'])
 
     # Determine whether to run on multiple GPUs
     if torch.cuda.device_count() <= 1:
         config['mGPUs'] = False
     if config['mGPUs']:
-        print("Using %s GPUs" % torch.cuda.device_count())
+        print('Using %s GPUs' % torch.cuda.device_count())
         net = nn.DataParallel(net)
 
     net = net.to(device)
@@ -140,15 +140,15 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
                 loss = loss_fn(predictions, label_map)
                 
                 # Update the progress bar with the current batch loss
-                progress.set_postfix(**{'batch loss':"{:.4f}".format(abs(loss.item()))})
+                progress.set_postfix(**{'batch loss':'{:.4f}'.format(abs(loss.item()))})
                 val_loss += abs(loss.item())
 
                 # After some epochs, save an image of the input, output, and ground truth for visualization
                 if config['visualize']:
                     if epoch_num + 1 in config['vis_after_epoch'] or config['vis_every_epoch']:
-                            truth_filename = "epoch_%s__image_%s_truth.jpg" % (epoch_num, image_num)
-                            pcl_filename = "epoch_%s__image_%s_point_cloud.jpg" % (epoch_num, image_num)
-                            prediction_filename = "epoch_%s__image_%s_unet_output.jpg" % (epoch_num, image_num)
+                            truth_filename = 'epoch_%s__image_%s_truth.jpg' % (epoch_num, image_num)
+                            pcl_filename = 'epoch_%s__image_%s_point_cloud.jpg' % (epoch_num, image_num)
+                            prediction_filename = 'epoch_%s__image_%s_unet_output.jpg' % (epoch_num, image_num)
 
                             save_images(exp_name, input[0], label_map[0], predictions[0], pcl_filename, truth_filename, prediction_filename)
                 image_num += batch_size
@@ -157,7 +157,7 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
                 progress.update(input.shape[0])
                 
         val_loss = val_loss / len(test_data_loader)
-        print("Validation Round Loss: %s" % val_loss)
+        print('Validation Round Loss: %s' % val_loss)
 
 
 def train(exp_name, device, output):
@@ -177,7 +177,7 @@ def train(exp_name, device, output):
     Batch size:      %s
     Epochs:          %s
     Device:          %s
-    ''' % (learning_rate, batch_size, max_epochs, device.type if device.type == 'cpu' else "GPU X %s" % torch.cuda.device_count()))
+    ''' % (learning_rate, batch_size, max_epochs, device.type if device.type == 'cpu' else 'GPU X %s' % torch.cuda.device_count()))
     
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -190,7 +190,7 @@ def train(exp_name, device, output):
     Loss Function:   %s
     Optimizer:       %s
     Scheduler:       %s
-    ''' % ("Classification Loss" if isinstance(loss_fn, ClassificationLoss) else "Embedding Loss", "Adam", "None"))
+    ''' % ('Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', 'Adam', 'None'))
 
     # Tensorboard Logger
     train_writer = get_writer(config, 'train')
@@ -206,7 +206,7 @@ def train(exp_name, device, output):
         else:
             net.load_state_dict(torch.load(saved_ckpt_path, map_location=device))
 
-        print("Successfully loaded trained checkpoint at {}".format(saved_ckpt_path))
+        print('Successfully loaded trained checkpoint at {}'.format(saved_ckpt_path))
     else:
         start_epoch = 0
 
@@ -235,9 +235,9 @@ def train(exp_name, device, output):
                 predictions = net(input)
                 
                 # Calculate loss for this batch
-                if output == "class":
+                if output == 'class':
                     loss = loss_fn(predictions, label_map, mask)
-                elif output == "embedding":
+                elif output == 'embedding':
                     loss = loss_fn(predictions, instance_map, num_instances)
 
                 # Update the progress bar this this batch's loss
@@ -255,7 +255,7 @@ def train(exp_name, device, output):
         # Record Training Loss
         epoch_loss = epoch_loss / len(train_data_loader)
         train_writer.add_scalar('loss_epoch', epoch_loss, epoch + 1)
-        print("Epoch {}: Training Loss: {:.5f}".format(
+        print('Epoch {}: Training Loss: {:.5f}'.format(
             epoch + 1, epoch_loss))
 
         # Save Checkpoint
@@ -265,7 +265,7 @@ def train(exp_name, device, output):
                 torch.save(net.module.state_dict(), model_path)
             else:
                 torch.save(net.state_dict(), model_path)
-            print("Checkpoint for epoch {} saved at {}\n".format(epoch + 1, model_path))
+            print('Checkpoint for epoch {} saved at {}\n'.format(epoch + 1, model_path))
 
         if scheduler is not None:
             scheduler.step()
@@ -313,7 +313,7 @@ def eval_loader(config, net, loss_fn, loader, loader_name, device):
                 losses.append(loss.item())
                 
                 # Update the progress bar with the current batch loss
-                progress.set_postfix(**{'loss':"{:.4f}".format(abs(loss.item()))})
+                progress.set_postfix(**{'loss':'{:.4f}'.format(abs(loss.item()))})
 
                 # Update the progress bar, moving it along by one batch size
                 progress.update(input.shape[0])
@@ -352,7 +352,7 @@ def evaluate_model(exp_name, device, plot=True):
     Loss Function:   %s
     Optimizer:       %s
     Scheduler:       %s
-    ''' % ("Classification Loss" if isinstance(loss_fn, ClassificationLoss) else "Embedding Loss", "Adam", "None"))
+    ''' % ('Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', 'Adam', 'None'))
 
     saved_ckpt_path = get_model_name(config)
 
@@ -361,17 +361,17 @@ def evaluate_model(exp_name, device, plot=True):
     else:
         net.load_state_dict(torch.load(saved_ckpt_path, map_location=device))
 
-    print("Successfully loaded trained checkpoint at {}".format(saved_ckpt_path))
+    print('Successfully loaded trained checkpoint at {}'.format(saved_ckpt_path))
     
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
             1, config['geometry'])
 
     # Evaluate the performance on the training data
-    metrics_train = eval_loader(config, net, loss_fn, train_data_loader, "Train", device)
+    metrics_train = eval_loader(config, net, loss_fn, train_data_loader, 'Train', device)
 
     # Evaluate the performance on the testing data
-    metrics_val = eval_loader(config, net, loss_fn, test_data_loader, "Test", device)
+    metrics_val = eval_loader(config, net, loss_fn, test_data_loader, 'Test', device)
     
     total_inputs = len(train_data_loader) + len(test_data_loader)
     time_mean = ((metrics_train['time_mean'] * len(train_data_loader)) + (metrics_val['time_mean'] * len(test_data_loader))) / total_inputs
@@ -396,10 +396,10 @@ def evaluate_model(exp_name, device, plot=True):
         Max:             {:.4f}
         Min:             {:.4f}
     
-    '''.format(saved_ckpt_path, "Classification Loss" if isinstance(loss_fn, ClassificationLoss) else "Embedding Loss", time_mean, max(metrics_train['time_max'], metrics_val['time_max']), min(metrics_train['time_min'], metrics_val['time_min']), metrics_train['loss_mean'], metrics_train['loss_max'], metrics_train['loss_min'], metrics_val['loss_mean'], metrics_val['loss_max'], metrics_val['loss_min']))
+    '''.format(saved_ckpt_path, 'Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', time_mean, max(metrics_train['time_max'], metrics_val['time_max']), min(metrics_train['time_min'], metrics_val['time_min']), metrics_train['loss_mean'], metrics_train['loss_max'], metrics_train['loss_min'], metrics_val['loss_mean'], metrics_val['loss_max'], metrics_val['loss_min']))
     
-    #fig_name = "PRCurve_val_" + config['name']
-    #legend = "AP={:.1%}".format(val_metrics['AP'])
+    #fig_name = 'PRCurve_val_' + config['name']
+    #legend = 'AP={:.1%}'.format(val_metrics['AP'])
     #plot_pr_curve(val_precisions, val_recalls, legend, name=fig_name)
 
 def eval_one(net, loss_fn, loader, image_id, device):
@@ -457,7 +457,7 @@ def test(exp_name, device, image_id):
     print('''\nBuilt model:
     Loss Function:   %s
     Weights:         %s
-    ''' % ("Classification Loss" if isinstance(loss_fn, ClassificationLoss) else "Embedding Loss", get_model_name(config)))
+    ''' % ('Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', get_model_name(config)))
     
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -468,9 +468,9 @@ def test(exp_name, device, image_id):
     with torch.no_grad():
         input, label_map, prediction, loss, time = eval_one(net, loss_fn, test_data_loader, image_id, device)
         
-    truth_filename = "EVAL_num_%s_truth.jpg" % image_id
-    pcl_filename = "EVAL_num_%s_point_cloud.jpg" % image_id
-    prediction_filename = "EVAL_num_%s_unet_output.jpg" % image_id
+    truth_filename = 'EVAL_num_%s_truth.jpg' % image_id
+    pcl_filename = 'EVAL_num_%s_point_cloud.jpg' % image_id
+    prediction_filename = 'EVAL_num_%s_unet_output.jpg' % image_id
 
     save_images(exp_name, input, label_map[0], prediction[0], pcl_filename, truth_filename, prediction_filename)
     save_dir = os.path.join(base_dir, 'experiments', exp_name, 'images')
@@ -484,15 +484,15 @@ def test(exp_name, device, image_id):
     ''' % (image_id, time, loss, os.path.join(save_dir, truth_filename), os.path.join(save_dir, pcl_filename), os.path.join(save_dir, prediction_filename)))
         
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='U-Net training module')
     parser.add_argument('mode', choices=['train', 'eval', 'test'], help='mode for the model')
-    parser.add_argument('--test_id', type=int, default=25, help="id of the image to test")
-    parser.add_argument('--output', required=True, help="output of the model")
+    parser.add_argument('--test_id', type=int, default=25, help='id of the image to test')
+    parser.add_argument('--output', required=True, help='output of the model')
     args = parser.parse_args()
 
-    if args.output not in ["class", "embedding"]:
-        raise ValueError("output must be one of {class, embedding}")
+    if args.output not in ['class', 'embedding']:
+        raise ValueError('output must be one of {class, embedding}')
 
     # Choose a device for the model
     if torch.cuda.is_available():

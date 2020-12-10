@@ -1,3 +1,8 @@
+'''
+This file is not run independently
+
+Helper functions for the BEV representation, where X and Y correspond to width and height
+'''
 from math import radians
 
 import numpy as np
@@ -5,30 +10,28 @@ from matplotlib import pyplot as plt
 from matplotlib import cm
 
 from transformations import euler_matrix
-import config
 
-from visualization import pointcloud, horizontal_lines, vertical_lines
 import matplotlib
 import open3d as o3d
 
 
 class BEV:
     def __init__(self, geom):
-        self.width, self.height, self.channels = geom["input_shape"]
-        self.mins = np.array([geom[s] for s in ("W1", "L1", "H1")])
-        self.maxes = np.array([geom[s] for s in ("W2", "L2", "H2")])
+        self.width, self.height, self.channels = geom['input_shape']
+        self.mins = np.array([geom[s] for s in ('W1', 'L1', 'H1')])
+        self.maxes = np.array([geom[s] for s in ('W2', 'L2', 'H2')])
 
         self.resolutions = np.array([
-            abs(geom["W2"] - geom["W1"]) / self.width,
-            abs(geom["L2"] - geom["L1"]) / self.height,
-            abs(geom["H2"] - geom["H1"]) / self.channels,
+            abs(geom['W2'] - geom['W1']) / self.width,
+            abs(geom['L2'] - geom['L1']) / self.height,
+            abs(geom['H2'] - geom['H1']) / self.channels,
         ])
 
         self.geom = geom
 
         self.output_downsample_fac = (
-            int(geom["input_shape"][0]) //
-            int(geom["label_shape"][0]))
+            int(geom['input_shape'][0]) //
+            int(geom['label_shape'][0]))
 
         self.output_width = self.width // self.output_downsample_fac
         self.output_height = self.height // self.output_downsample_fac
@@ -38,34 +41,35 @@ class BEV:
         # All normals point inwards, dot product of in-bounds coordinates and
         # bounding line should be positive
         self.bounds = np.array([
-            [1, 0,   -geom["W1"]],
-            [-1, 0,  geom["W2"]],
-            [0, 1,   -geom["L1"]],
-            [0, -1,  geom["L2"]]
+            [1, 0,   -geom['W1']],
+            [-1, 0,  geom['W2']],
+            [0, 1,   -geom['L1']],
+            [0, -1,  geom['L2']]
         ])
 
-        self.cnorm_orig = matplotlib.colors.Normalize(vmin=geom["H1"],
-                vmax=geom["H2"])
-
-        print(self.resolutions)
+        self.cnorm_orig = matplotlib.colors.Normalize(vmin=geom['H1'],
+                vmax=geom['H2'])
+    
         self.cnorm_bev = matplotlib.colors.Normalize(
-            vmin=(geom["H1"] - self.mins[2]) / self.resolutions[0],
-            vmax=(geom["H2"] - self.mins[2]) / self.resolutions[0])
+            vmin=(geom['H1'] - self.mins[2]) / self.resolutions[2],
+            vmax=(geom['H2'] - self.mins[2]) / self.resolutions[2])
 
     cmap_jet = matplotlib.pyplot.cm.get_cmap('jet')
 
-    # Decode angle encoded as sin(2*theta), cos(2*theta)
-    @classmethod
-    def decode_angle(cls, sin_2t, cos_2t):
-      sin_t = np.sqrt(.5*(1.-cos_2t))
-      cos_t = sin_2t / (2. * sin_t)
-      return sin_t, cos_t, np.arctan2(sin_t, cos_t)
-
     def crop_labels(self, labels):
+        '''
+        Edit a list of lines so all points are in-bounds and lines are valid
+
+        Parameters:
+            labels (arr): the list of labels
+
+        Returns:
+            arr: a new, edited, list of labels
+        '''
         N = len(labels)
 
         if N == 0:
-            print("No rows found in this point cloud")
+            print('No rows found in this point cloud')
             return labels
 
         # Homogeneous coordinates of point1 and point2 for the lines
@@ -118,35 +122,49 @@ class BEV:
         return labels_new
 
     def standardize_pointcloud(self, pts):
-        # Counter for tilt of sensor
+        '''
+        Make the point cloud valid for viewing
+
+        Parameters:
+            pts (arr): the point cloud
+
+        Returns:
+            arr: a corrected point cloud
+        '''
+        # Correct for the tilt of the sensor
         pitch = radians(3.)
         R_extrinsic = euler_matrix(0, pitch, 0)[0:3,0:3]
 
         pts = np.matmul(R_extrinsic, pts.T).T
 
-
         # Crop the pointcloud
         pts = pts[
-                (pts[:,0] > self.geom["W1"]) & 
-                (pts[:,0] < self.geom["W2"]) & 
-                (pts[:,1] > self.geom["L1"]) &
-                (pts[:,1] < self.geom["L2"]) & 
-                (pts[:,2] > self.geom["H1"]) & 
-                (pts[:,2] < self.geom["H2"])]
+                (pts[:,0] > self.geom['W1']) & 
+                (pts[:,0] < self.geom['W2']) & 
+                (pts[:,1] > self.geom['L1']) &
+                (pts[:,1] < self.geom['L2']) & 
+                (pts[:,2] > self.geom['H1']) & 
+                (pts[:,2] < self.geom['H2'])]
 
         return pts
             
-
     def pointcloud_to_bev(self, pts):
-        bev = np.zeros((self.width, self.height, self.channels), dtype='float32')
+        '''
+        Convert a raw point array to a bev-represented array
 
-        # Random rotation augmentation
-        H = np.eye(3)
-        # H[1,1] = -1
+        Parameters:
+            pts (arr): raw point array [X, Y, Z]
+        
+        Returns:
+            numpy.ndarray: [width, height, channels] array of the point cloud
+        '''
+        bev = np.zeros((self.width, self.height, self.channels), dtype='float32')
 
         pts = self.standardize_pointcloud(pts)
 
         pts -= self.mins
+
+        # Scale the points from robot coordinates to image pixels
         pts /= self.resolutions
 
         coords = pts.astype('int')
@@ -182,9 +200,16 @@ class BEV:
         # return (np.concatenate((np.floor(y), np.floor(y)+1)).astype(int), np.concatenate((x,x)).astype(int),
         #         np.concatenate((valbot, valtop)))
 
-
     def labels_to_bev(self, labels):
-        # Translate into BEV frame
+        '''
+        Convert the given lines in two-points format to the correct pixel space
+
+        Parameters:
+            labels (arr): the labels
+        
+        Returns:
+            arr: the labels, transformed into bev using given geometry
+        '''
         if len(labels) == 0:
           return labels
         else:
@@ -235,67 +260,35 @@ class BEV:
 
     reg_map_channels = 4
 
-    def decode_reg_map(self, reg_map, class_map, threshold):
-        xs, ys = np.meshgrid(
-            np.arange(self.output_width),
-            np.arange(self.output_height),
-            indexing='ij'
-        )
+    def pointcloud(self, points, colors=None):
+        '''Helper function for the method visualize_lines_3d'''
+        pcl = o3d.geometry.PointCloud()
 
-        coords = np.concatenate((
-            xs.reshape(-1, 1),
-            ys.reshape(-1, 1)
-        ), axis=1).astype('int')
+        if colors is not None:
+            colors = colors.astype('float64')
+            pcl.colors = o3d.utility.Vector3dVector(colors)
 
-        # print(reg_map.shape, class_map.shape)
-        reg_map = reg_map.reshape(-1, reg_map.shape[2])
-        class_map = class_map.reshape(-1)
+        pcl.points = o3d.utility.Vector3dVector(points.astype('float64'))
 
-        # print(reg_map.shape, class_map.shape)
-
-        mask = class_map > threshold
-
-        lines = reg_map[mask, :]
-        coords = coords[mask, :]
-
-        n_target = lines[:,0:2]
-        d_target = lines[:,2]
-
-        d = -(d_target - np.sum(coords * n_target, axis=1))
-        n = n_target / np.linalg.norm(n_target, axis=1).reshape(-1, 1)
-
-        lines_decoded = np.concatenate(
-            (n, d.reshape(-1, 1)), 
-            axis=1
-        )
-
-        scores = class_map[mask]
-
-        # unique_lines = np.unique(lines_decoded, axis=0)
-        # print(unique_lines)
-        # print(unique_lines.shape)
-        
-
-        return lines_decoded, scores
-
-    @classmethod
-    def make_bev_viz_image(cls, bev):
-        values = bev.argmax(axis=2).astype('float')
-        values = (values / float(bev.shape[2])).reshape(-1)
-        img_shape = (bev.shape[0], bev.shape[1], 4)
-        img = BEV.cmap_jet(values).reshape(img_shape)
-        img[np.bitwise_not(np.any(bev, axis=2))] = 0.
-
-        return img
+        return pcl
 
     def visualize_lines_3d(self, lines, pts, frame='bev', order='xyxy'):
+        '''
+        Use Open3D to plot labels on 3D point clouds
+
+        Parameters:
+            lines (arr): the labels
+            pts (arr): the bev-represented point cloud
+            frame (string): the representation to use
+            order (string): the order the coordinates are in in the lines parameter
+        '''
         if order != 'xxyy' and order != 'xyxy':
-            raise ValueError("order must be one of {xxyy, xyxy}")
+            raise ValueError('order must be one of {xxyy, xyxy}')
 
         if frame != 'bev' and frame != 'orig':
-            raise ValueError("frame must be one of {frame, orig}")
+            raise ValueError('frame must be one of {frame, orig}')
 
-        if frame == "bev":
+        if frame == 'bev':
             pts_colors = self.cmap_jet(self.cnorm_bev(pts[:,2]))[:,0:3]
         else:
             pts_colors = self.cmap_jet(self.cnorm_orig(pts[:,2]))[:,0:3]
@@ -314,123 +307,24 @@ class BEV:
         zmin = self.mins[2]
         zmax = self.maxes[2]
 
-        if frame == "bev":
+        if frame == 'bev':
             zmin = (zmin - self.mins[2]) / self.resolutions[0]
             zmax = (zmax - self.mins[2]) / self.resolutions[0]
 
+        # Make Open3D lines
+        zeros = np.full((lines1.shape[0], 1), zmin)
+        pts1 = np.concatenate((lines1, zeros), axis=1)
+        pts2 = np.concatenate((lines2, zeros), axis=1)
+
+        corresp = [(n, n) for n in range(len(pts1))]
+
+        o3d_lines =\
+        o3d.geometry.LineSet.create_from_point_cloud_correspondences(
+                self.pointcloud(pts1),
+                self.pointcloud(pts2), 
+                corresp
+        )
+
         o3d.visualization.draw_geometries([
-            pointcloud(pts, colors=pts_colors), 
-            horizontal_lines(lines1, lines2, zmin),
-            horizontal_lines(lines1, lines2, zmax),
-            vertical_lines(lines1, zmin, zmax),
-            vertical_lines(lines2, zmin, zmax),
+            self.pointcloud(pts, colors=pts_colors), o3d_lines
         ])
-
-    def visualize_bev(self, bev, labels, reg_map, class_map,
-        instance_map=None, cls_preds=None, geom=None):
-        img = BEV.make_bev_viz_image(bev)
-
-        plt.subplot(1, 2, 1)
-        plt.axis('off')
-        plt.tight_layout()
-        plt.imshow(img)
-
-        plt.xlim((0, self.width))
-        plt.ylim((self.height, 0))
-
-        for l in labels:
-            plt.plot(l[2:4], l[0:2], c='r', linewidth=.5)
-
-
-        if cls_preds is not None:
-          plt.subplot(1, 3, 2)
-          plt.axis('off')
-          plt.tight_layout()
-          plt.imshow(cls_preds, cmap='jet')
-
-        # plt.subplot(1, 2, 2)
-        # plt.axis('off')
-        # plt.tight_layout()
-        # plt.imshow(class_map)
-
-        shuffle = np.zeros(256)
-        shuffle[1:] = np.random.permutation(255)
-
-
-        cmap = cm.get_cmap('gist_rainbow')
-        #print(instance_map.shape)
-        #print(class_map.shape)
-
-        if instance_map is not None:
-          instance_map *= np.arange(32).reshape(-1, 1, 1)
-          instance_map = np.sum(instance_map, axis=0).astype('int') / len(labels)
-
-          plt.subplot(1, 2, 2)
-          plt.axis('off')
-          plt.tight_layout()
-          values = (instance_map.astype('float32')).reshape(-1)
-
-          colormap_shape = (instance_map.shape[0], instance_map.shape[1], 4)
-          colormap = cmap(values).reshape(colormap_shape)
-          colormap[reg_map[:,:,0] == 0] = 0.
-
-          plt.imshow(colormap)
-
-        # plt.subplot(2, 2, 3)
-        # plt.axis('off')
-        # plt.tight_layout()
-        #
-        # xs, ys = np.meshgrid(
-        #     np.arange(self.output_width),
-        #     np.arange(self.output_height),
-        #     indexing='ij'
-        # )
-        #
-        # coords = np.concatenate((
-        #     xs.reshape(-1, 1),
-        #     ys.reshape(-1, 1)
-        # ), axis=1).astype('int')
-        #
-        # mask = class_map.reshape(-1).astype('bool')
-        # decoded = reg_map.reshape(-1, reg_map.shape[2])[mask]
-        #
-        # p0 = coords[mask]
-        # p1 = p0 + decoded[:,2:4]
-        #
-        # # sign = decoded[:, 2]
-        # encoded_angles = decoded[:,0:2]
-        #
-        # for (x0, y0), (x1, y1), (sin_2t, cos_2t) in zip(p0, p1, encoded_angles):
-        #     # Plot normal
-        #     # if sign > 0:
-        #     plt.plot((y0, y1), (x0, x1), c='b')
-        #
-        #
-        #     _, _, t = BEV.decode_angle(sin_2t, cos_2t)
-        #     #print("angles", np.arctan2(y1 - y0, x1 - x0), t)
-        #
-        #     dx1 = x0 + np.cos(t + np.pi/2)
-        #     dx2 = x0 + np.cos(t - np.pi/2)
-        #
-        #     dy1 = y0 + np.sin(t + np.pi/2)
-        #     dy2 = y0 + np.sin(t - np.pi/2)
-        #
-        #     plt.plot((dy1, dy2), (dx1, dx2), c='r')
-        #
-        #     # elif sign < 0:
-        #     #   plt.plot((y0, y1), (x0, x1), c='r')
-        #
-        #     # Plot line
-        #     # plt.plot(
-        #     #     (y1 + (d_y * 200), y1 - (d_y * 200)), 
-        #     #     (x1 + (d_x * 200), x1 - (d_x * 200)), 
-        #     #     c='g'
-        #     # )
-        #
-        # # plot label GT
-        # for l in labels:
-        #     plt.plot(l[2:4] / 4, l[0:2] / 4, c='g', linewidth=.5)
-        #
-        # plt.imshow(class_map)
-        #
-        plt.show()
