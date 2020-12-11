@@ -1,18 +1,20 @@
-import math
+'''
+This file is not run independently
+
+Helper functions
+'''
+
+import errno
 import json
 import os
-
-import torch
-import torch.nn
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-# plt.switch_backend('agg')
-import errno
+import math
 from math import sin, cos
 
-from config import base_dir, exp_name
+import matplotlib.pyplot as plt
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+
+from config import base_dir, exp_name
 
 
 def load_config(exp_name):

@@ -5,16 +5,15 @@ Extracts point clouds from bag files in a directory and saves them
 in the correct format and location
 '''
 
-from sys import argv
-import os
 import errno
 from glob import glob
+import os
+from sys import argv
 
-import rosbag
 import numpy as np
+import rosbag
 
 from config import exp_name
-
 from numpy_pc2 import pointcloud2_to_xyzi_array
 from utils import mkdir_p, load_config
 

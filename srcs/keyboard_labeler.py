@@ -1,7 +1,13 @@
+'''
+This file is not run independently
+
+Matplotlib tool for labeling lines on point clouds. Run from run_labeler.py
+'''
+
 from math import radians
 
-import numpy as np
 from matplotlib import pyplot as plt
+import numpy as np
 
 from utils import rotation_2d
 

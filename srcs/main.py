@@ -1,39 +1,38 @@
 import sys
 sys.path.append('/home/aaron/ag_lidar_navigation-bev/srcs/models/')
 
+import argparse
 import logging
+import math
+import numpy as np
+import os
+import random
+import time
 import torch
 import torch.nn as nn
-import numpy as np
-import time
-import argparse
-import random
-import math
-from torch.multiprocessing import Pool
-import cv2 as cv
-import os
 
-from loss import ClassificationLoss, EmbeddingLoss
+import cv2 as cv
+from shapely.geometry import LineString
+from sklearn.decomposition import PCA
+from torch.multiprocessing import Pool
+from torchvision.utils import make_grid
+from tqdm import tqdm
+
+from bev import BEV
+from config import base_dir, exp_name
 from dataset import get_data_loader
+from loss import ClassificationLoss
 from unet import UNet
 from utils import get_model_name, load_config, get_writer, plot_pr_curve, mkdir_p
-from torchvision.utils import make_grid
-from shapely.geometry import LineString
-from tqdm import tqdm
-from config import base_dir, exp_name
-
-from sklearn.decomposition import PCA
-from bev import BEV
 
 
-def build_model(config, device, output='class', train=True):
+def build_model(config, device, train=True):
     '''
     Build the U-Net model
     
     Parameters:
         config (dictionary): dictionary of hyperparameter names and values for configuration
-        device (torch.device): the device on which to run the network
-        output (string): the type of output of the model
+        device (torch.device): the device on which to run
         train (bool): whether the model is being used for training
         
     Returns:
@@ -42,19 +41,11 @@ def build_model(config, device, output='class', train=True):
         optimizer (torch.optim): an optimizer (if train=True)
         scheduler (torch.optim): a scheduler (if train=True)
     '''
-    if output == 'class':
-        out_channels = 1
-    else:
-        out_channels = config['embedding_dim']
-        
-    net = UNet(config['geometry'], use_batchnorm=config['use_bn'], output_dim=out_channels,
+    net = UNet(config['geometry'], use_batchnorm=config['use_bn'], output_dim=1,
             feature_scale=config['layer_width_scale'])
 
     # Determine the loss function to be used (if you're not sure, use ClassificationLoss)
-    if output == 'class':
-        loss_fn = ClassificationLoss(device, config, num_classes=1)
-    elif output == 'embedding':
-        loss_fn = EmbeddingLoss(device, config, embedding_dim=config['embedding_dim'])
+    loss_fn = ClassificationLoss()
 
     # Determine whether to run on multiple GPUs
     if torch.cuda.device_count() <= 1:
@@ -114,10 +105,20 @@ def save_images(exp_name, input, label_map, prediction, pcl_filename, truth_file
     
 
 def validation_round(net, loss_fn, device, exp_name, epoch_num):
+    '''
+    Find loss for all testing data and save images of the pipeline if applicable
+    
+    Parameters:
+        net (torch.nn.Module): the network
+        loss_fn (class): the loss function for the network
+        device (torch.device): the device on which to run
+        exp_name (str): the name of the configuration for which to load the config file
+        epoch_num (int): the epoch number (for saving images)
+    '''
     net.eval()
     
     # Load hyperparameters
-    config, learning_rate, batch_size, max_epochs = load_config(exp_name)
+    config, _, batch_size, _ = load_config(exp_name)
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -160,14 +161,13 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
         print('Validation Round Loss: %s' % val_loss)
 
 
-def train(exp_name, device, output):
+def train(exp_name, device):
     '''
     Train the network.
     
     Parameters:
-        exp_name (string): the name of the experiment for which to load the config file
+        exp_name (str): the name of the configuration for which to load the config file
         device (torch.device): the device on which to run
-        output (string): the type of output for the network {class, embedding}
     '''
     # Load Hyperparameters
     config, learning_rate, batch_size, max_epochs = load_config(exp_name)
@@ -184,13 +184,13 @@ def train(exp_name, device, output):
             batch_size, config['geometry'])
 
     # Build the model
-    net, loss_fn, optimizer, scheduler = build_model(config, device, output, train=True)
+    net, loss_fn, optimizer, scheduler = build_model(config, device, train=True)
     
     print('''\nBuilt model:
     Loss Function:   %s
     Optimizer:       %s
     Scheduler:       %s
-    ''' % ('Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', 'Adam', 'None'))
+    ''' % ('Classification Loss', 'Adam', 'None'))
 
     # Tensorboard Logger
     train_writer = get_writer(config, 'train')
@@ -235,10 +235,7 @@ def train(exp_name, device, output):
                 predictions = net(input)
                 
                 # Calculate loss for this batch
-                if output == 'class':
-                    loss = loss_fn(predictions, label_map, mask)
-                elif output == 'embedding':
-                    loss = loss_fn(predictions, instance_map, num_instances)
+                loss = loss_fn(predictions, label_map, mask)
 
                 # Update the progress bar this this batch's loss
                 progress.set_postfix(**{'loss (batch)': loss.item()})
@@ -282,8 +279,8 @@ def eval_loader(config, net, loss_fn, loader, loader_name, device):
         net (torch.nn.Module): the network
         loss_fn (class): the loss function for the network
         loader (Dataset): a data loader in which to retrieve the input (batch_size should be 1)
-        loader_name (string): the name to give the data loader (only for printing)
-        device (torch.device): the device on which to run the network
+        loader_name (str): the name to give the data loader (only for printing)
+        device (torch.device): the device on which to run
 
     Returns:
         dict: dictionary of name-value pairs (useful information on the evaluation)
@@ -338,7 +335,7 @@ def evaluate_model(exp_name, device, plot=True):
     Determine the total performance of the network on all data
     
     Parameters:
-        exp_name (string): the name of the experiment for which to load the config file
+        exp_name (str): the name of the configuration for which to load the config file
         device (torch.device): the device on which to run
         plot (bool): whether to plot the results for visualization
     '''
@@ -352,7 +349,7 @@ def evaluate_model(exp_name, device, plot=True):
     Loss Function:   %s
     Optimizer:       %s
     Scheduler:       %s
-    ''' % ('Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', 'Adam', 'None'))
+    ''' % ('Classification Loss', 'Adam', 'None'))
 
     saved_ckpt_path = get_model_name(config)
 
@@ -361,7 +358,7 @@ def evaluate_model(exp_name, device, plot=True):
     else:
         net.load_state_dict(torch.load(saved_ckpt_path, map_location=device))
 
-    print('Successfully loaded trained checkpoint at {}'.format(saved_ckpt_path))
+    print('Successfully loaded trained checkpoint at {}\n'.format(saved_ckpt_path))
     
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -396,7 +393,7 @@ def evaluate_model(exp_name, device, plot=True):
         Max:             {:.4f}
         Min:             {:.4f}
     
-    '''.format(saved_ckpt_path, 'Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', time_mean, max(metrics_train['time_max'], metrics_val['time_max']), min(metrics_train['time_min'], metrics_val['time_min']), metrics_train['loss_mean'], metrics_train['loss_max'], metrics_train['loss_min'], metrics_val['loss_mean'], metrics_val['loss_max'], metrics_val['loss_min']))
+    '''.format(saved_ckpt_path, 'Classification Loss', time_mean, max(metrics_train['time_max'], metrics_val['time_max']), min(metrics_train['time_min'], metrics_val['time_min']), metrics_train['loss_mean'], metrics_train['loss_max'], metrics_train['loss_min'], metrics_val['loss_mean'], metrics_val['loss_max'], metrics_val['loss_min']))
     
     #fig_name = 'PRCurve_val_' + config['name']
     #legend = 'AP={:.1%}'.format(val_metrics['AP'])
@@ -457,7 +454,7 @@ def test(exp_name, device, image_id):
     print('''\nBuilt model:
     Loss Function:   %s
     Weights:         %s
-    ''' % ('Classification Loss' if isinstance(loss_fn, ClassificationLoss) else 'Embedding Loss', get_model_name(config)))
+    ''' % ('Classification Loss', get_model_name(config)))
     
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -488,11 +485,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='U-Net training module')
     parser.add_argument('mode', choices=['train', 'eval', 'test'], help='mode for the model')
     parser.add_argument('--test_id', type=int, default=25, help='id of the image to test')
-    parser.add_argument('--output', required=True, help='output of the model')
     args = parser.parse_args()
-
-    if args.output not in ['class', 'embedding']:
-        raise ValueError('output must be one of {class, embedding}')
 
     # Choose a device for the model
     if torch.cuda.is_available():
@@ -501,7 +494,7 @@ if __name__ == '__main__':
         device = torch.device('cpu')   
 
     if args.mode=='train':
-        train(exp_name, device, args.output)
+        train(exp_name, device)
     if args.mode=='eval':
         evaluate_model(exp_name, device, plot=False)
     if args.mode=='test':

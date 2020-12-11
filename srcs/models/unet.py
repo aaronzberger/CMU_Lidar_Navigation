@@ -1,3 +1,9 @@
+'''
+This file is not run independently
+
+U-Net model
+'''
+
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
@@ -40,26 +46,11 @@ class UNetUp(nn.Module):
         offset2 = inputs1.size()[3] - outputs2.size()[3]
 
         padding = 2 * [offset // 2, offset // 2]
-        # padding = [0, offset2, 0, offset]
 
-        # print('input1 shape', inputs1.shape)
-        # print(padding)
         outputs2 = F.pad(outputs2, padding)
   
-        # print(outputs1.shape, outputs2.shape)
         return self.conv(torch.cat([inputs1, outputs2], 1))
 
-
-# 'geometry':{
-#       'L1': -5.0,
-#       'L2': 5.0,
-#       'W1': 0.0,
-#       'W2': 10.0,
-#       'H1': -1.6,
-#       'H2': 0.32,
-#       'input_shape': [400, 400, 24],
-#       'label_shape': [100, 100, 9]
-#   }
 
 class UNet(nn.Module):
     def __init__(
@@ -105,38 +96,23 @@ class UNet(nn.Module):
         self.apply(init_weights)
 
     def forward(self, inputs):
-        # inputs = F.pad(inputs, (0, 1, 0, 1), mode='replicate')
-        # print('inputs', inputs.size())
-
         conv1 = self.conv1(inputs)
-        # print('conv1', conv1.size())
-
         maxpool1 = self.maxpool1(conv1)
-        #print('maxpool1', maxpool1.shape)
 
         conv2 = self.conv2(maxpool1)
         maxpool2 = self.maxpool2(conv2)
-        #print('maxpool2', maxpool2.shape)
 
         conv3 = self.conv3(maxpool2)
         maxpool3 = self.maxpool3(conv3)
-        #print('maxpool3', maxpool3.shape)
 
         conv4 = self.conv4(maxpool3)
         maxpool4 = self.maxpool4(conv4)
-        #print('maxpool4', maxpool4.shape)
 
         center = self.center(maxpool4)
         up4 = self.up_concat4(conv4, center)
-        #print('up4', up4.shape)
-
         up3 = self.up_concat3(conv3, up4)
-        #print('up3', up3.shape)
         up2 = self.up_concat2(conv2, up3)
-        #print('up2', up2.shape)
         up1 = self.up_concat1(conv1, up2)
-        #print('up1', up1.shape)
-
         final = self.final(up1)
 
         return final

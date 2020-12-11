@@ -3,16 +3,15 @@ This file is not run independently
 
 Helper functions for the BEV representation, where X and Y correspond to width and height
 '''
+
 from math import radians
 
-import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib import cm
-
-from transformations import euler_matrix
-
 import matplotlib
+from matplotlib import cm
+from matplotlib import pyplot as plt
+import numpy as np
 import open3d as o3d
+from transformations import euler_matrix
 
 
 class BEV:
@@ -21,6 +20,7 @@ class BEV:
         self.mins = np.array([geom[s] for s in ('W1', 'L1', 'H1')])
         self.maxes = np.array([geom[s] for s in ('W2', 'L2', 'H2')])
 
+        # This represents the scaling from robot coordinates to pixel space
         self.resolutions = np.array([
             abs(geom['W2'] - geom['W1']) / self.width,
             abs(geom['L2'] - geom['L1']) / self.height,
@@ -211,12 +211,12 @@ class BEV:
             arr: the labels, transformed into bev using given geometry
         '''
         if len(labels) == 0:
-          return labels
+            return labels
         else:
-          labels = (labels - self.mins[[0, 0, 1, 1]]) /\
+            labels = (labels - self.mins[[0, 0, 1, 1]]) /\
                   self.resolutions[[0, 0, 1, 1]]
 
-          return labels
+            return labels
 
     max_num_instances = 32
     def make_targets(self, labels):

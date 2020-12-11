@@ -1,18 +1,18 @@
 '''
 Usage: run_labeler.py
 
-Simply run the labeler defined in keyboard_labeler.py and save the results
+Run the labeler defined in keyboard_labeler.py and save the results in the correct place
 '''
 
-from sys import argv
 import os
+from sys import argv
 
-from tqdm import tqdm
 import numpy as np
+from tqdm import tqdm
 
 from config import exp_name
-from utils import mkdir_p, load_config
 from keyboard_labeler import Labeler
+from utils import mkdir_p, load_config
 
 config, _, _, _ = load_config(exp_name)
 
