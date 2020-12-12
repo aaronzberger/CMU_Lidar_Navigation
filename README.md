@@ -2,6 +2,8 @@
 
 Training module for U-Net, including tools for labeling, viewing data, and testing with different hyperparameters.
 
+![Pipeline](https://user-images.githubusercontent.com/35245591/101995864-32835f80-3c9b-11eb-986e-e320d50177a8.png)
+
 ## Table of Contents
 - [U-Net](#U-Net)
 - [Pipeline](#Pipeline)
