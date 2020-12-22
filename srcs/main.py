@@ -20,7 +20,7 @@ from utils import mkdir_p
 from models.unet import UNet
 
 
-def build_model(config, device, train=True):
+def build_model(config, device, train=True, loss='c'):
     '''
     Build the U-Net model
 
@@ -28,6 +28,7 @@ def build_model(config, device, train=True):
         config (dict): dict of hyperparam names and values for configuration
         device (torch.device): the device on which to run
         train (bool): whether the model is being used for training
+        loss (str): determines loss function to be used
 
     Returns:
         net (torch.nn.Module): the network
@@ -39,12 +40,18 @@ def build_model(config, device, train=True):
                output_dim=1, feature_scale=config['layer_width_scale'])
 
     # Determine the loss function to be used
-    loss_fn = ClassificationLoss()
+    if loss == 'c':
+        loss_fn = ClassificationLoss()
+    elif loss == 'f':
+        loss_fn = Focal_Loss()
+    elif loss == 'd':
+        # TODO Replace with discriminative loss
+        loss_fn = ClassificationLoss
+    else:
+        raise ValueError('loss argument must be in [c, f, d]')
 
     # Determine whether to run on multiple GPUs
-    if torch.cuda.device_count() <= 1:
-        config['mGPUs'] = False
-    if config['mGPUs']:
+    if config['mGPUs'] and torch.cuda.device_count > 1 and train:
         print('Using %s GPUs' % torch.cuda.device_count())
         net = nn.DataParallel(net)
 
@@ -192,17 +199,16 @@ def train(exp_name, device):
             batch_size, config['geometry'])
 
     # Build the model
-    net, loss_fn, optimizer, scheduler = \
-        build_model(config, device, train=True)
-
-    # EDIT
-    loss_fn = Focal_Loss(device)
-    loss_fn.to(device)
+    net, loss_fn, optimizer, scheduler = build_model(
+        config, device, train=True, loss='f')
 
     if isinstance(loss_fn, ClassificationLoss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
+    # TODO Replace with discriminative
+    elif isinstance(loss_fn, ClassificationLoss):
+        loss_str = 'Discriminative Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -249,17 +255,9 @@ def train(exp_name, device):
 
                 optimizer.zero_grad()
 
-                # Create mask
-                # mask = (0.1 * (1 - label_map)) + (label_map * 0.9)
-
                 # Forward Prop
                 predictions = net(input)
 
-                # Calculate loss for this batch
-                # (sigmoid is applied in the loss function)
-                # loss = loss_fn(predictions, label_map, mask)
-
-                # EDIT
                 loss = loss_fn(predictions, label_map)
 
                 # Update the progress bar this this batch's loss
@@ -376,12 +374,15 @@ def evaluate_model(exp_name, device, plot=True):
     config, _, _, _ = load_config(exp_name)
 
     # Build the model
-    net, loss_fn = build_model(config, device, train=False)
+    net, loss_fn = build_model(config, device, train=False, loss='c')
 
     if isinstance(loss_fn, ClassificationLoss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
+    # TODO Replace with discriminative
+    elif isinstance(loss_fn, ClassificationLoss):
+        loss_str = 'Discriminative Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -391,12 +392,8 @@ def evaluate_model(exp_name, device, plot=True):
 
     saved_ckpt_path = get_model_name(config)
 
-    if config['mGPUs']:
-        net.module.load_state_dict(
-            torch.load(saved_ckpt_path, map_location=device))
-    else:
-        net.load_state_dict(
-            torch.load(saved_ckpt_path, map_location=device))
+    net.load_state_dict(
+        torch.load(saved_ckpt_path, map_location=device))
 
     print('Successfully loaded trained checkpoint at {}\n'.format(
         saved_ckpt_path))
@@ -490,11 +487,11 @@ def test(exp_name, device, image_id):
         device (torch.device): the device on which to run
         image_id (int): the image_id in the test data loader
     '''
-    # Load Hyperparameters
+    # Load Hyperparameters()
     config, _, _, _ = load_config(exp_name)
 
     # Build the model
-    net, loss_fn = build_model(config, device, train=False)
+    net, loss_fn = build_model(config, device, train=False, loss='c')
 
     # Load the weights of the network
     net.load_state_dict(
@@ -504,6 +501,9 @@ def test(exp_name, device, image_id):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
+    # TODO Replace with discriminative
+    elif isinstance(loss_fn, ClassificationLoss):
+        loss_str = 'Discriminative Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -550,7 +550,10 @@ if __name__ == '__main__':
 
     # Choose a device for the model
     if torch.cuda.is_available():
-        device = torch.device('cuda')
+        if not args.mode == 'train':
+            device = torch.device('cuda:0')
+        else:
+            device = torch.device('cuda')
     else:
         device = torch.device('cpu')
 

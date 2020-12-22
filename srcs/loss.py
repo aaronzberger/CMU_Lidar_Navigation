@@ -11,7 +11,7 @@ class ClassificationLoss(nn.Module):
     def __init__(self):
         super(ClassificationLoss, self).__init__()
 
-    def forward(self, preds, targets, mask=None):
+    def forward(self, preds, targets):
         preds = torch.sigmoid(preds)
 
         return F.binary_cross_entropy(
