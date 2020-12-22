@@ -1,7 +1,8 @@
 '''
 Usage: run_labeler.py
 
-Run the labeler defined in keyboard_labeler.py and save the results in the correct place
+Run the labeler defined in keyboard_labeler.py and
+save the results in the correct place
 '''
 
 import os
@@ -29,27 +30,32 @@ if len(argv) != 1:
 # Gather the names of all directories of point cloud files
 dirs = [x for x in next(os.walk(raw_dir))[1]]
 
-# Count the number of raw files (regardless of whether they have already been labeled)
+# Count the number of raw files
+# (regardless of whether they have already been labeled)
 num_raw_files = 0
 for d in dirs:
-    num_raw_files += len([name for name in os.listdir(os.path.join(raw_dir, d)) if name.endswith('.npz')])
+    num_raw_files += len([name for name in os.listdir(
+        os.path.join(raw_dir, d)) if name.endswith('.npz')])
 
 num_labels_already = 0
 for d in [y for y in next(os.walk(label_dir))[1]]:
-    num_labels_already += len([name for name in os.listdir(os.path.join(label_dir, d)) if name.endswith('.npz')])
+    num_labels_already += len([name for name in os.listdir(
+        os.path.join(label_dir, d)) if name.endswith('.npz')])
 
-print('Found labels for %s/%s raw files. %s to go!' % (num_labels_already, num_raw_files, num_raw_files - num_labels_already))
+print('Found labels for %s/%s raw files. %s to go!' %
+      (num_labels_already, num_raw_files, num_raw_files - num_labels_already))
 
 labeler = Labeler()
 
 # Make a progress bar for labeling
-with tqdm(total=num_raw_files, desc='Labeling: ', unit='pcl', initial=num_labels_already) as progress:
+with tqdm(total=num_raw_files, desc='Labeling: ', unit='pcl',
+          initial=num_labels_already) as progress:
     for d in dirs:
         # Make a directory with the same name for the labels
         mkdir_p(os.path.join(label_dir, d))
 
         files = os.listdir(os.path.join(raw_dir, d))
-        files = sorted(list(files), key=lambda x: int(x[:-4]) )
+        files = sorted(list(files), key=lambda x: int(x[:-4]))
 
         for f in files:
             if not f.endswith('.npz'):
@@ -64,6 +70,6 @@ with tqdm(total=num_raw_files, desc='Labeling: ', unit='pcl', initial=num_labels
             data = np.load(file_path)
             pts = data['pointcloud']
 
-            labeler.plot_points(pts)             
+            labeler.plot_points(pts)
             np.savez(label_path, labels=labeler.get_labels())
             progress.update()

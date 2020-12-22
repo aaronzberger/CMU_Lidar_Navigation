@@ -1,14 +1,14 @@
 '''
 This file is not run independently
 
-Helper functions for the BEV representation, where X and Y correspond to width and height
+Helper functions for the BEV representation,
+where X and Y correspond to width and height
 '''
 
 from math import radians
 
 import matplotlib
-from matplotlib import cm
-from matplotlib import pyplot as plt
+import matplotlib.pyplot
 import numpy as np
 import open3d as o3d
 from transformations import euler_matrix
@@ -47,9 +47,9 @@ class BEV:
             [0, -1,  geom['L2']]
         ])
 
-        self.cnorm_orig = matplotlib.colors.Normalize(vmin=geom['H1'],
-                vmax=geom['H2'])
-    
+        self.cnorm_orig = matplotlib.colors.Normalize(
+            vmin=geom['H1'], vmax=geom['H2'])
+
         self.cnorm_bev = matplotlib.colors.Normalize(
             vmin=(geom['H1'] - self.mins[2]) / self.resolutions[2],
             vmax=(geom['H2'] - self.mins[2]) / self.resolutions[2])
@@ -74,14 +74,14 @@ class BEV:
 
         # Homogeneous coordinates of point1 and point2 for the lines
         p1 = np.ones((N, 3))
-        p1[:,0:2] = labels[:,[0, 2]]
+        p1[:, 0:2] = labels[:, [0, 2]]
 
         p2 = np.ones((N, 3))
-        p2[:,0:2] = labels[:,[1, 3]]
+        p2[:, 0:2] = labels[:, [1, 3]]
 
         # Cross product of two points gives the line
         lines = np.cross(p1, p2)
-        lines /= np.linalg.norm(lines[:,0:2])
+        lines /= np.linalg.norm(lines[:, 0:2])
 
         # Iteratively crop the lines with each bounding line
         for bound in self.bounds:
@@ -89,12 +89,12 @@ class BEV:
             N = len(lines)
             dists = np.zeros((2, N))
             valid = np.zeros((2, N), dtype='bool')
-            
+
             for i, p in enumerate((p1, p2)):
                 bound /= np.linalg.norm(bound)
                 dists[i] = np.sum(p * bound, axis=1)
                 valid[i] = dists[i] > 0
-            
+
             # Discard line segments which are totally out of bounds
             # i.e. cannot be cropped in order to make in-bounds
             either_valid = np.any(valid, axis=0)
@@ -110,14 +110,14 @@ class BEV:
                 if len(idxs > 0):
                     # Compute intersection of lines and boundary
                     p_new = np.cross(lines[idxs], bound)
-                    p_new /= p_new[:,2].reshape(-1, 1)
+                    p_new /= p_new[:, 2].reshape(-1, 1)
 
                     # Replace old points with new intersected points
                     p[idxs] = p_new
 
         labels_new = np.zeros((lines.shape[0], 4))
-        labels_new[:,[0, 2]] = p1[:,0:2]
-        labels_new[:,[1, 3]] = p2[:,0:2]
+        labels_new[:, [0, 2]] = p1[:, 0:2]
+        labels_new[:, [1, 3]] = p2[:, 0:2]
 
         return labels_new
 
@@ -133,32 +133,33 @@ class BEV:
         '''
         # Correct for the tilt of the sensor
         pitch = radians(3.)
-        R_extrinsic = euler_matrix(0, pitch, 0)[0:3,0:3]
+        R_extrinsic = euler_matrix(0, pitch, 0)[0:3, 0:3]
 
         pts = np.matmul(R_extrinsic, pts.T).T
 
         # Crop the pointcloud
         pts = pts[
-                (pts[:,0] > self.geom['W1']) & 
-                (pts[:,0] < self.geom['W2']) & 
-                (pts[:,1] > self.geom['L1']) &
-                (pts[:,1] < self.geom['L2']) & 
-                (pts[:,2] > self.geom['H1']) & 
-                (pts[:,2] < self.geom['H2'])]
+                (pts[:, 0] > self.geom['W1']) &
+                (pts[:, 0] < self.geom['W2']) &
+                (pts[:, 1] > self.geom['L1']) &
+                (pts[:, 1] < self.geom['L2']) &
+                (pts[:, 2] > self.geom['H1']) &
+                (pts[:, 2] < self.geom['H2'])]
 
         return pts
-            
+
     def pointcloud_to_bev(self, pts):
         '''
         Convert a raw point array to a bev-represented array
 
         Parameters:
             pts (arr): raw point array [X, Y, Z]
-        
+
         Returns:
             numpy.ndarray: [width, height, channels] array of the point cloud
         '''
-        bev = np.zeros((self.width, self.height, self.channels), dtype='float32')
+        bev = np.zeros(
+            (self.width, self.height, self.channels), dtype='float32')
 
         pts = self.standardize_pointcloud(pts)
 
@@ -169,11 +170,11 @@ class BEV:
 
         coords = pts.astype('int')
 
-        bev[coords[:,0], coords[:,1], coords[:,2]] = 1.
-        
+        bev[coords[:, 0], coords[:, 1], coords[:, 2]] = 1.
+
         return bev
 
-    # source https://stackoverflow.com/questions/31638651/how-can-i-draw-lines-into-numpy-arrays
+    # https://stackoverflow.com/questions/31638651/how-can-i-draw-lines-into-numpy-arrays
     def _naive_line(self, r0, c0, r1, c1):
         # The algorithm below works fine if c1 >= c0 and c1-c0 >= abs(r1-r0).
         # If either of these cases are violated, do some switches.
@@ -192,12 +193,13 @@ class BEV:
         x = np.arange(c0, c1+1, dtype=float)
         y = x * (r1-r0) / (c1-c0) + (c1*r0-c0*r1) / (c1-c0)
 
-        valbot = np.floor(y)-y+1
-        valtop = y-np.floor(y)
+        # valbot = np.floor(y)-y+1
+        # valtop = y-np.floor(y)
 
         return (np.floor(y), x)
 
-        # return (np.concatenate((np.floor(y), np.floor(y)+1)).astype(int), np.concatenate((x,x)).astype(int),
+        # return (np.concatenate((np.floor(y), np.floor(y)+1)).astype(int),
+        #         np.concatenate((x,x)).astype(int),
         #         np.concatenate((valbot, valtop)))
 
     def labels_to_bev(self, labels):
@@ -206,7 +208,7 @@ class BEV:
 
         Parameters:
             labels (arr): the labels
-        
+
         Returns:
             arr: the labels, transformed into bev using given geometry
         '''
@@ -219,21 +221,22 @@ class BEV:
             return labels
 
     max_num_instances = 32
+
     def make_targets(self, labels):
         labels = self.labels_to_bev(labels) / self.output_downsample_fac
 
-        reg_map = np.zeros(                                                     
-            (self.output_width, self.output_height, self.reg_map_channels), 
+        reg_map = np.zeros(
+            (self.output_width, self.output_height, self.reg_map_channels),
             dtype='float32')
 
         class_map = np.zeros(
-            (self.output_width, self.output_height), 
+            (self.output_width, self.output_height),
             dtype='float32')
 
         instance_map = np.zeros((
           self.max_num_instances,
-          self.output_width, 
-          self.output_height), 
+          self.output_width,
+          self.output_height),
             dtype='float32')
 
         n_ins = 0
@@ -241,9 +244,9 @@ class BEV:
             xs, ys = self._naive_line(x0, y0, x1, y1)
 
             valid = (
-                (xs > 0) & 
-                (xs < self.output_width) & 
-                (ys < self.output_height) & 
+                (xs > 0) &
+                (xs < self.output_width) &
+                (ys < self.output_height) &
                 (ys > 0))
             xs = xs[valid].astype('int')
             ys = ys[valid].astype('int')
@@ -280,7 +283,8 @@ class BEV:
             lines (arr): the labels
             pts (arr): the bev-represented point cloud
             frame (string): the representation to use
-            order (string): the order the coordinates are in in the lines parameter
+            order (string): the order the coordinates
+                are in in the lines parameter
         '''
         if order != 'xxyy' and order != 'xyxy':
             raise ValueError('order must be one of {xxyy, xyxy}')
@@ -289,17 +293,17 @@ class BEV:
             raise ValueError('frame must be one of {frame, orig}')
 
         if frame == 'bev':
-            pts_colors = self.cmap_jet(self.cnorm_bev(pts[:,2]))[:,0:3]
+            pts_colors = self.cmap_jet(self.cnorm_bev(pts[:, 2]))[:, 0:3]
         else:
-            pts_colors = self.cmap_jet(self.cnorm_orig(pts[:,2]))[:,0:3]
+            pts_colors = self.cmap_jet(self.cnorm_orig(pts[:, 2]))[:, 0:3]
 
         if len(lines) > 0:
             if order == 'xxyy':
-                lines1 = lines[:,[0,2]]
-                lines2 = lines[:,[1,3]]
+                lines1 = lines[:, [0, 2]]
+                lines2 = lines[:, [1, 3]]
             else:
-                lines1 = lines[:,0:2]
-                lines2 = lines[:,2:4]
+                lines1 = lines[:, 0:2]
+                lines2 = lines[:, 2:4]
         else:
             lines1 = np.zeros((0, 2))
             lines2 = np.zeros((0, 2))
@@ -318,12 +322,12 @@ class BEV:
 
         corresp = [(n, n) for n in range(len(pts1))]
 
-        o3d_lines =\
-        o3d.geometry.LineSet.create_from_point_cloud_correspondences(
-                self.pointcloud(pts1),
-                self.pointcloud(pts2), 
-                corresp
-        )
+        o3d_lines = \
+            o3d.geometry.LineSet.create_from_point_cloud_correspondences(
+                    self.pointcloud(pts1),
+                    self.pointcloud(pts2),
+                    corresp
+            )
 
         o3d.visualization.draw_geometries([
             self.pointcloud(pts, colors=pts_colors), o3d_lines

@@ -8,7 +8,9 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 
-# Modified from https://github.com/meetshah1995/pytorch-semseg/blob/master/ptsemseg/models/unet.py
+# Modified from
+# https://github.com/meetshah1995/pytorch-semseg/blob/master/ptsemseg/models/unet.py
+
 
 class UNetConv2(nn.Module):
     def __init__(self, in_size, out_size, use_batchnorm):
@@ -16,14 +18,22 @@ class UNetConv2(nn.Module):
 
         if use_batchnorm:
             self.conv1 = nn.Sequential(
-                nn.Conv2d(in_size, out_size, 3, 1, 1), nn.BatchNorm2d(out_size), nn.ReLU()
+                nn.Conv2d(in_size, out_size, 3, 1, 1),
+                nn.BatchNorm2d(out_size),
+                nn.ReLU()
             )
             self.conv2 = nn.Sequential(
-                nn.Conv2d(out_size, out_size, 3, 1, 1), nn.BatchNorm2d(out_size), nn.ReLU()
+                nn.Conv2d(out_size, out_size, 3, 1, 1),
+                nn.BatchNorm2d(out_size),
+                nn.ReLU()
             )
         else:
-            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, 3, 1, 1), nn.ReLU())
-            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, 3, 1, 1), nn.ReLU())
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(in_size, out_size, 3, 1, 1),
+                nn.ReLU())
+            self.conv2 = nn.Sequential(
+                nn.Conv2d(out_size, out_size, 3, 1, 1),
+                nn.ReLU())
 
     def forward(self, inputs):
         outputs = self.conv1(inputs)
@@ -36,26 +46,25 @@ class UNetUp(nn.Module):
         super(UNetUp, self).__init__()
         self.conv = UNetConv2(in_size, out_size, False)
         if use_deconv:
-            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
+            self.up = nn.ConvTranspose2d(
+                in_size, out_size, kernel_size=2, stride=2)
         else:
             self.up = nn.UpsamplingBilinear2d(scale_factor=2)
 
     def forward(self, inputs1, inputs2):
         outputs2 = self.up(inputs2)
         offset = inputs1.size()[2] - outputs2.size()[2]
-        offset2 = inputs1.size()[3] - outputs2.size()[3]
 
         padding = 2 * [offset // 2, offset // 2]
 
         outputs2 = F.pad(outputs2, padding)
-  
+
         return self.conv(torch.cat([inputs1, outputs2], 1))
 
 
 class UNet(nn.Module):
-    def __init__(
-        self, geom, feature_scale=2, output_dim=3, use_deconv=True, use_batchnorm=True
-    ):
+    def __init__(self, geom, feature_scale=2,
+                 output_dim=3, use_deconv=True, use_batchnorm=True):
         super(UNet, self).__init__()
         self.use_deconv = use_deconv
         self.in_channels = geom['input_shape'][2]
@@ -66,7 +75,8 @@ class UNet(nn.Module):
         filters = [int(x / self.feature_scale) for x in filters]
 
         # downsampling
-        self.conv1 = UNetConv2(self.in_channels, filters[0], self.use_batchnorm)
+        self.conv1 = UNetConv2(
+            self.in_channels, filters[0], self.use_batchnorm)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
 
         self.conv2 = UNetConv2(filters[0], filters[1], self.use_batchnorm)
@@ -116,4 +126,3 @@ class UNet(nn.Module):
         final = self.final(up1)
 
         return final
-    

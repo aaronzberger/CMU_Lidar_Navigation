@@ -19,8 +19,8 @@ from utils import load_target_mean_std, load_config
 class VineyardDataset(Dataset):
     splits = ['test', 'train', 'val']
 
-    def __init__(self, geom, split='train', 
-            normalize_reg_map=False):
+    def __init__(self, geom, split='train',
+                 normalize_reg_map=False):
         self.bev = BEV(geom)
         self.reg_map_channels = self.bev.reg_map_channels
 
@@ -38,38 +38,40 @@ class VineyardDataset(Dataset):
 
     def __len__(self):
         return len(self.dataset)
-        
+
     def __getitem__(self, item):
         '''Return data in the correct format for the network'''
         raw_path, label_path = self.dataset[item]
-        
+
         label_data = np.load(label_path)
         raw_data = np.load(raw_path)
 
-        pts = raw_data['pointcloud'][:,0:3]
+        pts = raw_data['pointcloud'][:, 0:3]
         labels = label_data['labels']
-        
-        _, label_map, instance_map, num_instances = self.bev.make_targets(labels)
+
+        _, label_map, instance_map, num_instances = \
+            self.bev.make_targets(labels)
 
         bev = self.bev.pointcloud_to_bev(pts)
         bev = torch.from_numpy(bev).permute(2, 0, 1)
-        
+
         label_map = torch.from_numpy(label_map).unsqueeze(0)
 
         instance_map = torch.from_numpy(instance_map)
-        
+
         return bev, label_map, instance_map, num_instances, item
-    
+
     def load_dataset(self, split):
         '''Retrieve an array of all raw and labeled data for this split'''
         config, _, _, _ = load_config(exp_name)
-        
+
         # Load the csv file containing paths to the raw and labeled data
         # Run split_data.py to generate these files
         split_file = os.path.join(config['data_dir'], split + '.csv')
-        
+
         if not os.path.exists(split_file):
-            print('%s data does not exists at path %s. Run split_data.py to generate these files.' % (split, split_file))
+            print('%s data does not exists at path %s.' % (split, split_file)
+                  + 'Run split_data.py to generate these files.')
             return []
 
         with open(split_file, 'r') as f:
@@ -80,17 +82,17 @@ class VineyardDataset(Dataset):
 
         return dataset
 
-    
+
 def get_data_loader(batch_size, geometry, shuffle_test=False):
     '''
     Retrieve the DataLoaders for training and testing
-    
+
     Parameters:
         batch_size (int): the batch_size for both datasets
         geometry (arr): the geometry with which to pre-process the point clouds
         shuffle_test (bool): whether to shuffle the testing data
             (if you have been saving images of testing data, set to False)
-        
+
     Returns:
         DataLoader: for training
         DataLoader: for testing
@@ -99,10 +101,15 @@ def get_data_loader(batch_size, geometry, shuffle_test=False):
     '''
     train_dataset = VineyardDataset(
             geometry, split='train')
-    train_data_loader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size, num_workers=3)
+    train_data_loader = DataLoader(
+        train_dataset, shuffle=True,
+        batch_size=batch_size, num_workers=3)
 
     test_dataset = VineyardDataset(
             geometry, split='test')
-    test_data_loader = DataLoader(test_dataset, shuffle=shuffle_test, batch_size=batch_size, num_workers=8)
-    
-    return train_data_loader, test_data_loader, len(train_dataset), len(test_dataset)
+    test_data_loader = DataLoader(
+        test_dataset, shuffle=shuffle_test,
+        batch_size=batch_size, num_workers=8)
+
+    return train_data_loader, test_data_loader, \
+        len(train_dataset), len(test_dataset)

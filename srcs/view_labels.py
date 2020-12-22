@@ -1,7 +1,8 @@
 '''
 Usage: view_labels.py {3D, 2D}
 
-Visualize the labels that have been created with respect to the point clouds, in either 2D or 3D
+Visualize the labels that have been created with respect to the point clouds,
+in either 2D or 3D
 '''
 
 from math import radians
@@ -12,7 +13,7 @@ from sys import argv
 import numpy as np
 from transformations import euler_matrix
 
-from bev import  BEV
+from bev import BEV
 from config import exp_name
 from keyboard_labeler import Labeler
 from utils import load_config
@@ -37,7 +38,7 @@ dirs = [x for x in next(os.walk(label_dir))[1]]
 
 for d in dirs:
     files = os.listdir(os.path.join(label_dir, d))
-    files = sorted(list(files), key=lambda x: int(x[:-4]) )
+    files = sorted(list(files), key=lambda x: int(x[:-4]))
 
     shuffle(files)
 
@@ -57,31 +58,31 @@ for d in dirs:
             # Load the point cloud into an array
             raw_path = os.path.join(raw_dir, d, f)
             raw_data = np.load(raw_path)
-            pts = np.copy(raw_data['pointcloud'][:,0:3])
+            pts = np.copy(raw_data['pointcloud'][:, 0:3])
 
             # Make a rotation matrix to rotate points
             roll = 0
             pitch = radians(-3.)
-            R = euler_matrix(-roll, -pitch, 0)[0:3,0:3]
+            R = euler_matrix(-roll, -pitch, 0)[0:3, 0:3]
 
             # Apply the rotation matrix to the points
             pts = np.matmul(R, pts.T).T
 
             # Show only points that are in bounds in X and Y directions
-            idx =  ((pts[:,0] > geom['W1']) & 
-                    (pts[:,0] < geom['W2']) & 
-                    (pts[:,1] < geom['L2']) & 
-                    (pts[:,1] > geom['L1']))
+            idx = ((pts[:, 0] > geom['W1']) &
+                   (pts[:, 0] < geom['W2']) &
+                   (pts[:, 1] < geom['L2']) &
+                   (pts[:, 1] > geom['L1']))
             pts = pts[idx]
 
             print('\nLabels:')
             for label in labels:
-                print('X: {:.2f}, Y: {:.2f}     X: {:.2f}, Y: {:.2f}'.format(\
-                label[0], label[2], label[1], label[3]))
+                print('X: {:.2f}, Y: {:.2f}     X: {:.2f}, Y: {:.2f}'.format(
+                    label[0], label[2], label[1], label[3]))
 
             # Get an image of the point cloud and labels in 2D
             bev_img = bev.pointcloud_to_bev(
-                np.copy(raw_data['pointcloud'][:,0:3])
+                np.copy(raw_data['pointcloud'][:, 0:3])
             )
 
             data_2D = np.load(os.path.join(raw_dir, d, f))
@@ -94,5 +95,5 @@ for d in dirs:
                 labeler.plot_points_and_labels(pts_2D, formatted_labels)
 
             else:
-                # Plot the point cloud and labels in 3D            
+                # Plot the point cloud and labels in 3D
                 bev.visualize_lines_3d(labels, pts, order='xxyy')
