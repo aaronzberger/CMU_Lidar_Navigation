@@ -12,13 +12,14 @@ import torch.nn as nn
 class Focal_Loss(nn.Module):
     def __init__(self, device, alpha=0.75, gamma=2, reduction='mean'):
         super(Focal_Loss, self).__init__()
+
+        # Argument checking
         if reduction not in ['mean', 'sum', 'none']:
             raise NotImplementedError(
                 'Reduction {} not implemented.').format(reduction)
-        if not isinstance(alpha, (float, int)):
-            raise TypeError('alpha must be of float type')
-        if not isinstance(gamma, (float, int)):
-            raise TypeError('gamma must of float type')
+        if not isinstance(alpha, (float, int)) or \
+                not isinstance(gamma, (float, int)):
+            raise TypeError('arguments must of type (float, int)')
 
         # BCE must take a tensor (in case of more than one class)
         # Also must be on the same device as the input and target

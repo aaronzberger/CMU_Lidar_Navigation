@@ -12,23 +12,24 @@ from tqdm import tqdm
 
 from config import base_dir, exp_name
 from dataset import get_data_loader
-from loss import ClassificationLoss
-from focal_loss import Focal_Loss
+from loss.classification_loss import ClassificationLoss
+from loss.focal_loss import Focal_Loss
+from loss.successive_loss import Successive_Loss
 from utils import get_model_name, load_config, get_writer
 from utils import mkdir_p
 
 from models.unet import UNet
 
 
-def build_model(config, device, train=True, loss='c'):
+def build_model(config, device, train=True):
     '''
     Build the U-Net model
 
     Parameters:
         config (dict): dict of hyperparam names and values for configuration
         device (torch.device): the device on which to run
-        train (bool): whether the model is being used for training
         loss (str): determines loss function to be used
+        train (bool): whether the model is being used for training
 
     Returns:
         net (torch.nn.Module): the network
@@ -40,15 +41,22 @@ def build_model(config, device, train=True, loss='c'):
                output_dim=1, feature_scale=config['layer_width_scale'])
 
     # Determine the loss function to be used
-    if loss == 'c':
-        loss_fn = ClassificationLoss()
-    elif loss == 'f':
-        loss_fn = Focal_Loss()
-    elif loss == 'd':
-        # TODO Replace with discriminative loss
-        loss_fn = ClassificationLoss
+    if config['training_loss'] == 'c' or not train:
+        loss_fn = ClassificationLoss(config['reduction'])
+    elif config['training_loss'] == 'f':
+        loss_fn = Focal_Loss(
+            device, alpha=config['focal_alpha'], gamma=config['focal_gamma'],
+            reduction=config['reduction'])
+    elif config['training_loss'] == 's':
+        loss_fn = Successive_Loss(
+            device, lam=config['successive_lambda'],
+            alpha=config['focal_alpha'], gamma=config['focal_gamma'],
+            margin_s=config['embedding_margin_s'],
+            margin_d=config['embedding_margin_d'],
+            reduction=config['reduction']
+        )
     else:
-        raise ValueError('loss argument must be in [c, f, d]')
+        raise ValueError('loss argument must be in [c, f, s]')
 
     # Determine whether to run on multiple GPUs
     if config['mGPUs'] and torch.cuda.device_count > 1 and train:
@@ -185,14 +193,19 @@ def train(exp_name, device):
     # Load Hyperparameters
     config, learning_rate, batch_size, max_epochs = load_config(exp_name)
 
+    if device.type == 'cpu':
+        device_str = 'CPU'
+    elif not config['mGPUs']:
+        device_str = 'GPU X 1'
+    else:
+        device_str = 'GPU X %s' % torch.cuda.device_count()
+
     print('''\nLoaded hyperparameters:
     Learning Rate:   %s
     Batch size:      %s
     Epochs:          %s
     Device:          %s
-    ''' % (learning_rate, batch_size, max_epochs,
-           device.type if device.type == 'cpu' else
-           'GPU X %s' % torch.cuda.device_count()))
+    ''' % (learning_rate, batch_size, max_epochs, device_str))
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -200,15 +213,14 @@ def train(exp_name, device):
 
     # Build the model
     net, loss_fn, optimizer, scheduler = build_model(
-        config, device, train=True, loss='f')
+        config, device, train=True)
 
     if isinstance(loss_fn, ClassificationLoss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
-    # TODO Replace with discriminative
-    elif isinstance(loss_fn, ClassificationLoss):
-        loss_str = 'Discriminative Loss'
+    elif isinstance(loss_fn, Successive_Loss):
+        loss_str = 'Successive Embedding and Focal Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -223,7 +235,7 @@ def train(exp_name, device):
     # Edit this setting in config file.
     if config['resume_training']:
         start_epoch = config['resume_from']
-        saved_ckpt_path = get_model_name(config)
+        saved_ckpt_path = get_model_name(config, start_epoch)
 
         if config['mGPUs']:
             net.module.load_state_dict(
@@ -374,15 +386,14 @@ def evaluate_model(exp_name, device, plot=True):
     config, _, _, _ = load_config(exp_name)
 
     # Build the model
-    net, loss_fn = build_model(config, device, train=False, loss='c')
+    net, loss_fn = build_model(config, device, train=False)
 
     if isinstance(loss_fn, ClassificationLoss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
-    # TODO Replace with discriminative
-    elif isinstance(loss_fn, ClassificationLoss):
-        loss_str = 'Discriminative Loss'
+    elif isinstance(loss_fn, Successive_Loss):
+        loss_str = 'Successive Embedding and Focal Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -491,7 +502,7 @@ def test(exp_name, device, image_id):
     config, _, _, _ = load_config(exp_name)
 
     # Build the model
-    net, loss_fn = build_model(config, device, train=False, loss='c')
+    net, loss_fn = build_model(config, device, train=False)
 
     # Load the weights of the network
     net.load_state_dict(
@@ -501,9 +512,8 @@ def test(exp_name, device, image_id):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
-    # TODO Replace with discriminative
-    elif isinstance(loss_fn, ClassificationLoss):
-        loss_str = 'Discriminative Loss'
+    elif isinstance(loss_fn, Successive_Loss):
+        loss_str = 'Successive Embedding and Focal Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -551,7 +561,7 @@ if __name__ == '__main__':
     # Choose a device for the model
     if torch.cuda.is_available():
         if not args.mode == 'train':
-            device = torch.device('cuda:0')
+            device = torch.device('cuda:1')
         else:
             device = torch.device('cuda')
     else:

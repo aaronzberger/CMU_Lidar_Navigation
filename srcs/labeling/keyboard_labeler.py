@@ -5,9 +5,13 @@ Matplotlib tool for labeling lines on point clouds. Run from run_labeler.py
 '''
 
 from math import radians
+import sys
+import os
 
 from matplotlib import pyplot as plt
 import numpy as np
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import rotation_2d, load_config
 from config import exp_name

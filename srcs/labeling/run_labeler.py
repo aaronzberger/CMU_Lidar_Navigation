@@ -6,10 +6,12 @@ save the results in the correct place
 '''
 
 import os
-from sys import argv
+import sys
 
 import numpy as np
 from tqdm import tqdm
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import exp_name
 from keyboard_labeler import Labeler
@@ -24,7 +26,7 @@ label_dir = os.path.join(config['data_dir'], 'labels')
 # (If you don't have this yet, run bag_extractor.py)
 raw_dir = os.path.join(config['data_dir'], 'raw')
 
-if len(argv) != 1:
+if len(sys.argv) != 1:
     print('NOTE: No arguments expected for this file.')
 
 # Gather the names of all directories of point cloud files

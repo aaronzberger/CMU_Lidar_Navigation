@@ -7,9 +7,12 @@ in the correct format and location
 
 from glob import glob
 import os
+import sys
 
 import numpy as np
 import rosbag
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import exp_name
 from numpy_pc2 import pointcloud2_to_xyzi_array
@@ -23,7 +26,7 @@ config, _, _, _ = load_config(exp_name)
 save_dir = os.path.join(config['data_dir'], 'raw')
 
 # Directory containing the original bag files
-bags_dir = '/home/aaron/Documents/velo_bags/bags/'
+bags_dir = os.path.join(config['data_dir'], 'bags')
 
 # Collect the names of all the bags in the directory specified above
 bagnames = [y for x in os.walk(bags_dir)

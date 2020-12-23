@@ -8,17 +8,19 @@ in either 2D or 3D
 from math import radians
 import os
 from random import shuffle
-from sys import argv
+import sys
 
 import numpy as np
-from transformations import euler_matrix
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from transformations import euler_matrix
 from bev import BEV
 from config import exp_name
 from keyboard_labeler import Labeler
 from utils import load_config
 
-if len(argv) != 2 or argv[1] not in ('3D', '2D'):
+if len(sys.argv) != 2 or sys.argv[1] not in ('3D', '2D'):
     print('Usage: view_labels.py {3D, 2D}')
     quit()
 
@@ -88,7 +90,7 @@ for d in dirs:
             data_2D = np.load(os.path.join(raw_dir, d, f))
             pts_2D = data_2D['pointcloud']
 
-            if argv[1] == '2D':
+            if sys.argv[1] == '2D':
                 formatted_labels = []
                 for label in labels:
                     formatted_labels.append([label[0:2], label[2:]])

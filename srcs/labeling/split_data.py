@@ -7,6 +7,9 @@ This is used for training.
 
 import csv
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import exp_name
 from utils import load_config
@@ -59,11 +62,7 @@ for d in dirs:
         # The path to the raw data should be the same (see run_labeler.py)
         raw_path = os.path.join(raw_dir, d, f)
 
-        if os.path.exists(label_path):
-            filenames.append((raw_path, label_path))
-        else:
-            print('No labels found for %s.' % raw_path
-                  + 'Go run run_labeler.py to finish labeling.')
+        filenames.append((raw_path, label_path))
 
 n_files = len(filenames)
 
@@ -77,6 +76,18 @@ test_filenames = filenames[train_end:]
 
 write_split('train', train_filenames)
 write_split('test', test_filenames)
+
+num_raw_files = 0
+raw_dirs = [x for x in next(os.walk(raw_dir))[1]]
+for d in raw_dirs:
+    num_raw_files += len([name for name in os.listdir(
+        os.path.join(raw_dir, d)) if name.endswith('.npz')])
+
+if len(filenames) < num_raw_files:
+    print('''
+    Only {}/{} raw files are labeled.
+    Run run_labeler.py to finish labeling
+    '''.format(len(filenames), num_raw_files))
 
 print('''
     Data split:

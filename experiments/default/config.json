@@ -1,33 +1,31 @@
 {
   "name": "default",
-    
-  "data_dir": "/home/remote_user1/ag_lidar_navigation/data",
+  "data_dir": "/home/aaron/UNet_Data",
 
-  "resume_training": false,
+  "resume_training": true,
   "resume_from": 120,
+  "max_epochs": 120,
+
   "visualize": true,
-  "vis_every_epoch": false,
+  "vis_every_epoch": true,
   "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 120],
 
-  "batch_size": 4,
+  "batch_size": 8,
   "learning_rate": 0.001,
-  "momentum": 0.9,
-  "weight_decay": 0.0001,
-  "alpha": 1.0,
-  "beta": 0.1,
-  "lr_decay_at": [40, 80],
-  "max_epochs": 120,
-  "save_every": 5,
+  "save_every": 1,
   "log_every": 20,
 
   "use_bn": true,
-  "use_npy": false,
   "mGPUs": false,
-  "frame_range": 10000,
 
-  "cls_threshold": 0.05,
-  "nms_iou_threshold": 0.1,
-  "nms_top": 128,
+  "training_loss": "c",
+
+  "focal_alpha": 0.75,
+  "focal_gamma": 2.0,
+  "embedding_margin_s": 0.0,
+  "embedding_margin_d": 1.0,
+  "successive_lambda": 0.0015,
+  "reduction": "mean",
 
   "geometry":{
         "L1": -5.0,
@@ -39,7 +37,5 @@
         "input_shape": [400, 400, 24],
         "label_shape": [400, 400, 1]
     },
-    "embedding_dim": 8,
-    "max_num_instances": 32,
     "layer_width_scale": 1
 }
