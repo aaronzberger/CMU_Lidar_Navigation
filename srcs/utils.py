@@ -58,8 +58,7 @@ def get_model_name(config, epoch=None):
     if not os.path.exists(state_dict_folder):
         mkdir_p(state_dict_folder)
 
-    if epoch is None or not os.path.exists(
-            os.path.join(state_dict_folder, str(epoch)+'epoch')):
+    if epoch is None:
         epoch = config['resume_from']
 
     return os.path.join(state_dict_folder, str(epoch)+'epoch')

@@ -11,7 +11,7 @@ from utils import load_config
 
 
 class Embedding_Loss(nn.Module):
-    def __init__(self, device, margin_similar=0.0, margin_dissimilar=2.0,
+    def __init__(self, device, margin_similar=0.0, margin_dissimilar=1.0,
                  reduction='mean', contrastive=True):
         super(Embedding_Loss, self).__init__()
 
@@ -34,6 +34,9 @@ class Embedding_Loss(nn.Module):
         self.margin_dissimilar = (torch.tensor([margin_dissimilar])).to(device)
 
         _, _, self.batch_size, _ = load_config(exp_name)
+        
+        if not self.batch_size >= 2:
+            raise ValueError('Embedding Loss requires two images to compare. Increase batch size to >= 2')
 
     def contrastive_loss(self, input, target):
         # Flatten the predictions and truth
@@ -59,7 +62,7 @@ class Embedding_Loss(nn.Module):
 
         return contrastive_loss
 
-    def forward(self, input, target):
+    def forward(self, input, target):    
         if self.contrastive:
             embedding_loss = self.contrastive_loss(input, target)
 

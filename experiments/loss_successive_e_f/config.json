@@ -1,5 +1,5 @@
 {
-  "name": "default",
+  "name": "loss_successive_e_f",
   "data_dir": "/home/remote_user1/ag_lidar_navigation/data",
 
   "resume_training": false,
@@ -18,8 +18,9 @@
   "use_bn": true,
   "mGPUs": false,
 
-  "training_loss": "c",
+  "training_loss": "s_ef",
 
+  "classification_alpha": 0.8,
   "focal_alpha": 0.75,
   "focal_gamma": 2.0,
   "embedding_margin_s": 0.0,

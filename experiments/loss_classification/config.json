@@ -1,14 +1,14 @@
 {
-  "name": "default",
+  "name": "loss_classification",
   "data_dir": "/home/remote_user1/ag_lidar_navigation/data",
 
   "resume_training": false,
   "resume_from": 0,
-  "max_epochs": 1,
+  "max_epochs": 50,
 
-  "visualize": false,
-  "vis_every_epoch": true,
-  "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 120],
+  "visualize": true,
+  "vis_every_epoch": false,
+  "vis_after_epoch": [49, 50],
 
   "batch_size": 4,
   "learning_rate": 0.001,
@@ -20,6 +20,7 @@
 
   "training_loss": "c",
 
+  "classification_alpha": 0.8,
   "focal_alpha": 0.75,
   "focal_gamma": 2.0,
   "embedding_margin_s": 0.0,

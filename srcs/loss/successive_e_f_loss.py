@@ -10,10 +10,10 @@ from embedding_loss import Embedding_Loss
 from focal_loss import Focal_Loss
 
 
-class Successive_Loss(nn.Module):
+class Successive_E_F_Loss(nn.Module):
     def __init__(self, device, lam, alpha, gamma,
                  margin_s, margin_d, reduction='mean'):
-        super(Successive_Loss, self).__init__()
+        super(Successive_E_C_Loss, self).__init__()
 
         # Argument type checking
         if not isinstance(lam, (float, int)) or \
@@ -31,8 +31,6 @@ class Successive_Loss(nn.Module):
     def forward(self, input, target):
         embedding_loss = self.embedding(input, target)
         focal_loss = self.focal(input, target)
-
-        print(embedding_loss, focal_loss)
 
         successive_loss = focal_loss + (self.lam * embedding_loss)
 

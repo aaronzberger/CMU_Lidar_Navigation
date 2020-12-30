@@ -6,15 +6,17 @@ import os
 import time
 import torch
 import torch.nn as nn
+import csv
 
 import cv2 as cv
 from tqdm import tqdm
 
 from config import base_dir, exp_name
 from dataset import get_data_loader
-from loss.classification_loss import ClassificationLoss
+from loss.classification_loss import Classification_Loss
 from loss.focal_loss import Focal_Loss
-from loss.successive_loss import Successive_Loss
+from loss.successive_e_c_loss import Successive_E_C_Loss
+from loss.successive_e_f_loss import Successive_E_F_Loss
 from utils import get_model_name, load_config, get_writer
 from utils import mkdir_p
 
@@ -42,21 +44,27 @@ def build_model(config, device, train=True):
 
     # Determine the loss function to be used
     if config['training_loss'] == 'c' or not train:
-        loss_fn = ClassificationLoss(config['reduction'])
+        loss_fn = Classification_Loss(config['classification_alpha'], config['reduction'])
     elif config['training_loss'] == 'f':
         loss_fn = Focal_Loss(
             device, alpha=config['focal_alpha'], gamma=config['focal_gamma'],
             reduction=config['reduction'])
-    elif config['training_loss'] == 's':
-        loss_fn = Successive_Loss(
+    elif config['training_loss'] == 's_ef':
+        loss_fn = Successive_E_F_Loss(
             device, lam=config['successive_lambda'],
             alpha=config['focal_alpha'], gamma=config['focal_gamma'],
             margin_s=config['embedding_margin_s'],
             margin_d=config['embedding_margin_d'],
-            reduction=config['reduction']
-        )
+            reduction=config['reduction'])
+    elif config['training_loss'] == 's_ec':
+        loss_fn = Successive_E_C_Loss(
+            device, lam=config['successive_lambda'],
+            alpha=config['classification_alpha'],
+            margin_s=config['embedding_margin_s'],
+            margin_d=config['embedding_margin_d'],
+            reduction=config['reduction'])
     else:
-        raise ValueError('loss argument must be in [c, f, s]')
+        raise ValueError('loss argument must be in [c, f, s_ef, s_ec]')
 
     # Determine whether to run on multiple GPUs
     if config['mGPUs'] and torch.cuda.device_count > 1 and train:
@@ -116,7 +124,7 @@ def save_images(exp_name, input, label_map, prediction,
     cv.imwrite(os.path.join(save_dir, pred_filename), prediction_bgr)
 
 
-def validation_round(net, loss_fn, device, exp_name, epoch_num):
+def validation_round(net, device, exp_name, epoch_num):
     '''
     Find testing data loss and save images of the pipeline if applicable
 
@@ -131,6 +139,8 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
 
     # Load hyperparameters
     config, _, batch_size, _ = load_config(exp_name)
+    
+    loss_fn = Classification_Loss(config['classification_alpha'], config['reduction'])
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -180,6 +190,7 @@ def validation_round(net, loss_fn, device, exp_name, epoch_num):
 
         val_loss = val_loss / len(test_data_loader)
         print('Validation Round Loss: %s' % val_loss)
+        return val_loss
 
 
 def train(exp_name, device):
@@ -205,7 +216,8 @@ def train(exp_name, device):
     Batch size:      %s
     Epochs:          %s
     Device:          %s
-    ''' % (learning_rate, batch_size, max_epochs, device_str))
+    Configuration:   %s
+    ''' % (learning_rate, batch_size, max_epochs, device_str, exp_name))
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -215,12 +227,14 @@ def train(exp_name, device):
     net, loss_fn, optimizer, scheduler = build_model(
         config, device, train=True)
 
-    if isinstance(loss_fn, ClassificationLoss):
-        loss_str = 'Classification Loss'
+    if isinstance(loss_fn, Classification_Loss):
+        loss_str = 'Alpha-balanced Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
-    elif isinstance(loss_fn, Successive_Loss):
+    elif isinstance(loss_fn, Successive_E_F_Loss):
         loss_str = 'Successive Embedding and Focal Loss'
+    elif isinstance(loss_fn, Successive_E_C_Loss):
+        loss_str = 'Successive Embedding and Alpha-balanced Classification Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -250,7 +264,10 @@ def train(exp_name, device):
         start_epoch = 0
 
     # Do an initial validation round as a benchmark
-    validation_round(net, loss_fn, device, exp_name, start_epoch)
+    validation_round(net, device, exp_name, start_epoch)
+    
+    training_losses = []
+    testing_losses = []
 
     # Train for max_epochs epochs
     for epoch in range(start_epoch, max_epochs):
@@ -260,6 +277,17 @@ def train(exp_name, device):
 
         with tqdm(total=num_train, desc='Epoch %s/%s' % (epoch+1, max_epochs),
                   unit=' pointclouds') as progress:
+            if epoch == 0:
+                print('Classification Loss Only')
+                loss_fn = Classification_Loss(config['classification_alpha'], config['reduction'])
+            else:
+                print('Successive Embedding and Classification')
+                loss_fn = Successive_E_C_Loss(
+                    device, lam=config['successive_lambda'],
+                    alpha=config['classification_alpha'],
+                    margin_s=config['embedding_margin_s'],
+                    margin_d=config['embedding_margin_d'],
+                    reduction=config['reduction'])            
             for input, label_map, instance_map, num_instances, image_id in \
                     train_data_loader:
                 input = input.to(device)
@@ -269,12 +297,17 @@ def train(exp_name, device):
 
                 # Forward Prop
                 predictions = net(input)
+                
+                if isinstance(loss_fn, Classification_Loss):
+                    loss = loss_fn(predictions, label_map)
+                    progress.set_postfix(
+                        **{'loss': '{:.4f}'.format(abs(loss.item()))})
 
-                loss = loss_fn(predictions, label_map)
-
-                # Update the progress bar this this batch's loss
-                progress.set_postfix(
-                    **{'loss': '{:.4f}'.format(abs(loss.item()))})
+                else:
+                    loss, embedding_loss, classification_loss = loss_fn(predictions, label_map)
+                    # Update the progress bar this this batch's loss
+                    progress.set_postfix(
+                        **{'em/class': '{:.4f} {:.4f}'.format(abs(embedding_loss.item()), abs(classification_loss.item()))})
 
                 # Back Prop
                 loss.backward()
@@ -287,6 +320,7 @@ def train(exp_name, device):
 
         # Record Training Loss
         epoch_loss = epoch_loss / len(train_data_loader)
+        training_losses.append(epoch_loss)
         train_writer.add_scalar('loss_epoch', epoch_loss, epoch + 1)
         print('Epoch {}: Training Loss: {:.5f}'.format(
             epoch + 1, epoch_loss))
@@ -305,9 +339,21 @@ def train(exp_name, device):
         if scheduler is not None:
             scheduler.step()
 
-        validation_round(net, loss_fn, device, exp_name, epoch)
+        testing_loss = validation_round(net, device, exp_name, epoch)
+        testing_losses.append(testing_loss)
+        
+        csvFilename = os.path.join(base_dir, 'experiments', exp_name, 'loss_log.csv')
+    
+        with open(csvFilename, 'w') as csvFile:
+            csvWriter = csv.writer(csvFile)
+            headers = ['Epoch Number', 'Training Loss', 'Testing Loss']
+            csvWriter.writerow(headers)
+            rows = []
+            for i in range(0, len(training_losses)):
+                rows.append([i, training_losses[i], testing_losses[i]])
+            csvWriter.writerows(rows)
 
-    print('Finished Training')
+    print('Finished Training. Check the experiment folder for loss info, etc.')
 
 
 def eval_loader(config, net, loss_fn, loader, loader_name, device):
@@ -388,12 +434,14 @@ def evaluate_model(exp_name, device, plot=True):
     # Build the model
     net, loss_fn = build_model(config, device, train=False)
 
-    if isinstance(loss_fn, ClassificationLoss):
+    if isinstance(loss_fn, Classification_Loss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
     elif isinstance(loss_fn, Successive_Loss):
         loss_str = 'Successive Embedding and Focal Loss'
+    elif isinstance(loss_fn, Successive_E_C_Loss):
+        loss_str = 'Successive Embedding and Alpha-balanced Classification Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -508,12 +556,14 @@ def test(exp_name, device, image_id):
     net.load_state_dict(
         torch.load(get_model_name(config), map_location=device))
 
-    if isinstance(loss_fn, ClassificationLoss):
+    if isinstance(loss_fn, Classification_Loss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
     elif isinstance(loss_fn, Successive_Loss):
         loss_str = 'Successive Embedding and Focal Loss'
+    elif isinstance(loss_fn, Successive_E_C_Loss):
+        loss_str = 'Successive Embedding and Alpha-balanced Classification Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
