@@ -6,6 +6,7 @@ Dataset generator for retreiving data to pass through the network
 
 import csv
 import os
+import sys
 
 import numpy as np
 import torch
@@ -17,17 +18,12 @@ from utils import load_target_mean_std, load_config
 
 
 class VineyardDataset(Dataset):
-    splits = ['test', 'train', 'val']
-
     def __init__(self, geom, split='train',
                  normalize_reg_map=False):
         self.bev = BEV(geom)
         self.reg_map_channels = self.bev.reg_map_channels
 
-        if split in self.splits:
-            self.dataset = self.load_dataset(split)
-        else:
-            raise ValueError('Split must be one of {train, test, val}')
+        self.dataset = self.load_dataset(split)
 
         if normalize_reg_map:
             self.target_mean, self.target_std = load_target_mean_std()
@@ -52,14 +48,14 @@ class VineyardDataset(Dataset):
         _, label_map, instance_map, num_instances = \
             self.bev.make_targets(labels)
 
-        bev = self.bev.pointcloud_to_bev(pts)
-        bev = torch.from_numpy(bev).permute(2, 0, 1)
+        input = self.bev.pointcloud_to_bev(pts)
+        input = torch.from_numpy(input).permute(2, 0, 1)
 
         label_map = torch.from_numpy(label_map).unsqueeze(0)
 
         instance_map = torch.from_numpy(instance_map)
 
-        return bev, label_map, instance_map, num_instances, item
+        return input, label_map, instance_map, num_instances, item
 
     def load_dataset(self, split):
         '''Retrieve an array of all raw and labeled data for this split'''
@@ -70,8 +66,11 @@ class VineyardDataset(Dataset):
         split_file = os.path.join(config['data_dir'], split + '.csv')
 
         if not os.path.exists(split_file):
-            print('%s data does not exists at path %s.' % (split, split_file)
-                  + 'Run split_data.py to generate these files.')
+            sys.exit('\'%s\' split does not exists at  %s.'
+                     % (split, split_file)
+                     + '\nRun split_data.py to generate split files, '
+                     + 'or change which split to use in the get_data_loader '
+                     + 'function in dataset.py.')
             return []
 
         with open(split_file, 'r') as f:

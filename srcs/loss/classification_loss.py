@@ -21,9 +21,10 @@ class Classification_Loss(nn.Module):
 
     def forward(self, preds, targets):
         preds = torch.sigmoid(preds)
-        
+
         # Alpha for class imbalance
         alpha = (targets * self.alpha) + ((1 - self.alpha) * (1 - targets))
 
         return F.binary_cross_entropy(
-            input=preds, target=targets, weight=alpha, reduction=self.reduction)
+            input=preds, target=targets,
+            weight=alpha, reduction=self.reduction)

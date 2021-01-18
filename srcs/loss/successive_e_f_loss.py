@@ -13,7 +13,7 @@ from focal_loss import Focal_Loss
 class Successive_E_F_Loss(nn.Module):
     def __init__(self, device, lam, alpha, gamma,
                  margin_s, margin_d, reduction='mean'):
-        super(Successive_E_C_Loss, self).__init__()
+        super(Successive_E_F_Loss, self).__init__()
 
         # Argument type checking
         if not isinstance(lam, (float, int)) or \

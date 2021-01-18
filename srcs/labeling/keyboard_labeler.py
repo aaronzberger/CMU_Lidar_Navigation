@@ -49,7 +49,7 @@ class Labeler(object):
         '''Set figure size and boundaries of the point cloud,
         and setup the input callbacks'''
         # The 'figsize' parameter should be adjusted for your screen size
-        self.fig = plt.figure(figsize=(10.0, 10.0))
+        self.fig = plt.figure(figsize=(8.0, 8.0))
         self.ax = self.fig.add_subplot(1, 1, 1)
 
         plt.tight_layout()

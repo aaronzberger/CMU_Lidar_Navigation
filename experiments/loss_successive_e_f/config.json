@@ -11,6 +11,7 @@
   "vis_after_epoch": [1, 2, 3, 5, 10, 20, 50, 100, 120],
 
   "batch_size": 4,
+  "validation_batch_size": 16,
   "learning_rate": 0.001,
   "save_every": 20,
   "log_every": 20,

@@ -38,6 +38,7 @@ class UNetConv2(nn.Module):
     def forward(self, inputs):
         outputs = self.conv1(inputs)
         outputs = self.conv2(outputs)
+
         return outputs
 
 
@@ -63,16 +64,14 @@ class UNetUp(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, geom, feature_scale=2,
+    def __init__(self, geom,
                  output_dim=3, use_deconv=True, use_batchnorm=True):
         super(UNet, self).__init__()
         self.use_deconv = use_deconv
         self.in_channels = geom['input_shape'][2]
         self.use_batchnorm = use_batchnorm
-        self.feature_scale = feature_scale
 
         filters = [64, 128, 256, 512, 1024]
-        filters = [int(x / self.feature_scale) for x in filters]
 
         # downsampling
         self.conv1 = UNetConv2(
@@ -98,6 +97,7 @@ class UNet(nn.Module):
 
         # final conv (without any concat)
         self.final = nn.Conv2d(filters[0], output_dim, 1)
+        self.instances_final = nn.Conv2d(filters[0], 8, 1)
 
         def init_weights(m):
             if type(m) == nn.Conv2d or type(m) == nn.Linear:
@@ -124,5 +124,9 @@ class UNet(nn.Module):
         up2 = self.up_concat2(conv2, up3)
         up1 = self.up_concat1(conv1, up2)
         final = self.final(up1)
+        final_instances = self.instances_final(up1)
 
-        return final
+        if torch.sum(torch.isnan(final)) > 0:
+            print('%s NaN(s) Found' % torch.sum(torch.isnan(final)))
+
+        return final, final_instances

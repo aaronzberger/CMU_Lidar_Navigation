@@ -220,26 +220,37 @@ class BEV:
 
             return labels
 
-    max_num_instances = 32
-
     def make_targets(self, labels):
+        '''
+        Make the semantic segmentation label map, along with the
+        instance segmentation label map and the number of target instances
+
+        Parameters:
+            labels (arr): the labels created by the labeler
+
+        Returns:
+            np.ndarray: regression map
+            np.ndarray: semantic segmentation label map
+            np.ndarray: instance segmentation label map
+            int: number of instances in the instance seg label map
+        '''
         labels = self.labels_to_bev(labels) / self.output_downsample_fac
 
         reg_map = np.zeros(
             (self.output_width, self.output_height, self.reg_map_channels),
             dtype='float32')
 
-        class_map = np.zeros(
+        label_map = np.zeros(
             (self.output_width, self.output_height),
             dtype='float32')
 
         instance_map = np.zeros((
-          self.max_num_instances,
+          self.geom['max_num_instances'],
           self.output_width,
           self.output_height),
             dtype='float32')
 
-        n_ins = 0
+        instance_num = 0
         for i, (x0, x1, y0, y1) in enumerate(labels):
             xs, ys = self._naive_line(x0, y0, x1, y1)
 
@@ -252,14 +263,12 @@ class BEV:
             ys = ys[valid].astype('int')
 
             if len(xs) > 0 and len(ys) > 0:
-                class_map[xs, ys] = 1.
-                instance_map[n_ins, xs, ys] = 1.
+                label_map[xs, ys] = 1.
+                instance_map[instance_num, xs, ys] = 1.
 
-                n_ins += 1
+                instance_num += 1
 
-        n_instances = n_ins
-
-        return reg_map, class_map, instance_map, n_instances
+        return reg_map, label_map, instance_map, instance_num
 
     reg_map_channels = 4
 

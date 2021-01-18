@@ -1,7 +1,7 @@
 '''
 This file is not run independently
 
-Helper functions
+Helper functions for all classes
 '''
 
 import errno
@@ -20,12 +20,12 @@ def load_config(exp_name):
     Load the configuration file
 
     Parameters:
-         name: the name of the 'experiment'
+        name: the name of the 'experiment'
     Returns:
-         config (dict): Python dictionary of hyperparameter name-value pairs
-         learning_rate (float): the learning rate of the optimzer
-         batch_size: batch size used during training
-         max_epochs: number of epochs to train the network fully
+        config (dict): Python dictionary of hyperparameter name-value pairs
+        learning_rate (float): the learning rate of the optimzer
+        batch_size: batch size used during training
+        max_epochs: number of epochs to train the network
     '''
 
     path = os.path.join(base_dir, 'experiments', exp_name, 'config.json')
@@ -39,7 +39,7 @@ def load_config(exp_name):
         config['batch_size'], config['max_epochs']
 
 
-def get_model_name(config, epoch=None):
+def get_model_path(config, epoch=None):
     '''
     Generate a path to the relevant state dictionary for the model to load
 

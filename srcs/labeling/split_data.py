@@ -9,6 +9,8 @@ import csv
 import os
 import sys
 
+import numpy as np
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import exp_name
@@ -66,8 +68,10 @@ for d in dirs:
 
 n_files = len(filenames)
 
-train_percent = 0.9
-test_percent = 0.1
+np.random.shuffle(filenames)
+
+train_percent = 0.8
+test_percent = 0.2
 
 train_end = int(n_files * train_percent)
 
@@ -94,5 +98,5 @@ print('''
 
         Train:       {}%    {} point clouds
         Test:        {}%    {} point clouds
-'''.format(train_percent * 100, train_end,
-           test_percent * 100, n_files - train_end))
+'''.format(train_percent * 100, len(train_filenames),
+           test_percent * 100, len(test_filenames)))

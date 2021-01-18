@@ -10,7 +10,7 @@ import torch.nn as nn
 
 
 class Focal_Loss(nn.Module):
-    def __init__(self, device, alpha=0.75, gamma=2, reduction='mean'):
+    def __init__(self, device, alpha, gamma, reduction='mean'):
         super(Focal_Loss, self).__init__()
 
         # Argument checking

@@ -18,7 +18,7 @@ from config import exp_name
 from numpy_pc2 import pointcloud2_to_xyzi_array
 from utils import mkdir_p, load_config
 
-pointcloud_topic = '/velodyne_points'
+pointcloud_topic = 'velodyne_points'
 ext = '.bag'
 
 # Directory to save the .npz files containing point clouds

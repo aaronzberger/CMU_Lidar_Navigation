@@ -1,5 +1,3 @@
-# import sys
-
 import argparse
 import numpy as np
 import os
@@ -7,9 +5,11 @@ import time
 import torch
 import torch.nn as nn
 import csv
+import random
 
 import cv2 as cv
 from tqdm import tqdm
+from matplotlib import cm
 
 from config import base_dir, exp_name
 from dataset import get_data_loader
@@ -17,7 +17,7 @@ from loss.classification_loss import Classification_Loss
 from loss.focal_loss import Focal_Loss
 from loss.successive_e_c_loss import Successive_E_C_Loss
 from loss.successive_e_f_loss import Successive_E_F_Loss
-from utils import get_model_name, load_config, get_writer
+from utils import get_model_path, load_config, get_writer
 from utils import mkdir_p
 
 from models.unet import UNet
@@ -39,12 +39,13 @@ def build_model(config, device, train=True):
         optimizer (torch.optim): an optimizer (if train=True)
         scheduler (torch.optim): a scheduler (if train=True)
     '''
-    net = UNet(config['geometry'], use_batchnorm=config['use_bn'],
-               output_dim=1, feature_scale=config['layer_width_scale'])
+    net = UNet(config['geometry'], output_dim=1,
+               use_batchnorm=config['use_bn'])
 
     # Determine the loss function to be used
     if config['training_loss'] == 'c' or not train:
-        loss_fn = Classification_Loss(config['classification_alpha'], config['reduction'])
+        loss_fn = Classification_Loss(
+            config['classification_alpha'], config['reduction'])
     elif config['training_loss'] == 'f':
         loss_fn = Focal_Loss(
             device, alpha=config['focal_alpha'], gamma=config['focal_gamma'],
@@ -83,68 +84,129 @@ def build_model(config, device, train=True):
     return net, loss_fn, optimizer, scheduler
 
 
-def save_images(exp_name, input, label_map, prediction,
-                pcl_filename, truth_filename, pred_filename):
+def save_images(exp_name, epoch, input, label_map, prediction,
+                pcl_filename, truth_filename, pred_filename,
+                em_filename=None):
     '''
     Save images of the input Point Cloud,
     the ground truth, and the U-Net prediction
 
     Parameters:
+        exp_name (str): the name of the config file to load
+        epoch (any): epoch number or indicator
         input (Tensor): input to the network
         label_map (Tensor): labels, retrieved from a data loader
         prediction (Tensor): output from the network
         pcl_filename (string): file in which to save the point cloud
         truth_filename (string): file in which to save the ground truth
-        truth_filename (string): file in which to save the prediction
+        pred_filename (string): file in which to save the prediction
+        em_filename (string): file in which to save the embedding,
+            or None if you wish not to save the embedding
     '''
     config, learning_rate, batch_size, max_epochs = load_config(exp_name)
 
     # If not already created, make a directory to save the images
-    save_dir = os.path.join(base_dir, 'experiments', exp_name, 'images')
+    save_dir = os.path.join(base_dir, 'experiments', exp_name,
+                            'images_{}epoch'.format(epoch))
     mkdir_p(save_dir)
+    color_map = cm.get_cmap('jet')
 
-    # Save an image of the ground truth lines
-    # With the first ground truth data in the batch, convert channel order:
+    # Ground Truth Image
     # CxWxH to WxHxC & convert to grayscale image format (0-255 and 8-bit int)
-    truth = np.array(label_map.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-    image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
+    if label_map.shape[0] == 1:
+        truth = np.array(
+            label_map.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
+        image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
+    else:
+        image_truth = np.zeros((400, 400, 3), np.uint8)
+        points = torch.nonzero(label_map)
+        for p in points:
+            r, g, b, a = color_map(
+                np.float(p[0]) / label_map.shape[0])
+            image_truth[np.int64(p[1]), np.int64(p[2])] = \
+                (r * 255, g * 255, b * 255)
     cv.imwrite(os.path.join(save_dir, truth_filename), image_truth)
 
-    # Save an image of the point cloud:
-    pcl = np.array(input.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-    image_pcl = np.amax(pcl, axis=2)
+    # Point Cloud Image
+    image_pcl = np.zeros((400, 400, 3), np.uint8)
+    points = torch.nonzero(input)
+    for p in points:
+        r, g, b, a = color_map(
+            np.float(p[0]) / config['geometry']['input_shape'][2])
+        image_pcl[np.int64(p[1]), np.int64(p[2])] = (r * 255, g * 255, b * 255)
     cv.imwrite(os.path.join(save_dir, pcl_filename), image_pcl)
 
-    # Save an image of the U-Net prediction
-    # To better visualize the images, exagerate the difference between 0 and 1
+    # Prediction Image
     prediction = torch.sigmoid(prediction)
     prediction_gray = np.array(
         prediction.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
     prediction_bgr = cv.cvtColor(prediction_gray, cv.COLOR_GRAY2BGR)
     cv.imwrite(os.path.join(save_dir, pred_filename), prediction_bgr)
 
+    # Embedding Image
+    if em_filename is not None:
+        # Flatten labels and predictions into vectors
+        flattened_labels = label_map.view(-1, 1)
+        flattened_preds = prediction.view(-1, 1)
 
-def validation_round(net, device, exp_name, epoch_num):
+        # RANSAC a certain number of negative and positive pixels
+        pos_pixels = []
+        neg_pixels = []
+        while len(pos_pixels) + len(neg_pixels) < 250:
+            index = int(random.random() * len(flattened_preds))
+            if flattened_labels[index] == 1 and len(pos_pixels) < 125:
+                pos_pixels.append(flattened_preds[index])
+            elif flattened_labels[index] == 0 and len(neg_pixels) < 125:
+                neg_pixels.append(flattened_preds[index])
+
+        # Determine the Y axis scale and values
+        max_y = max(max(pos_pixels), max(neg_pixels))
+        min_y = min(min(pos_pixels), min(neg_pixels))
+        y_scale = 400 / (abs(max_y - min_y))
+
+        # Create the image, plotting all the pixels
+        image_embedding = np.zeros((400, 400, 3), np.uint8)
+        for y_val in pos_pixels:
+            x_image = np.random.normal(loc=200, scale=60)
+            x_image = int(max(1, min(x_image, 399)))
+            y_image = int((y_val - min_y) * y_scale)
+            image_embedding = cv.circle(
+                image_embedding, (x_image, y_image),
+                radius=1, color=(0, 0, 255), thickness=-1)
+        for y_val in neg_pixels:
+            x_image = np.random.normal(loc=200, scale=60)
+            x_image = int(max(1, min(x_image, 399)))
+            y_image = int((y_val - min_y) * y_scale)
+            image_embedding = cv.circle(
+                image_embedding, (x_image, y_image),
+                radius=1, color=(255, 0, 0), thickness=-1)
+
+        cv.imwrite(os.path.join(save_dir, em_filename), image_embedding)
+
+
+def validation_round(net, device, exp_name, epoch_num, save_embedding=False):
     '''
     Find testing data loss and save images of the pipeline if applicable
 
     Parameters:
         net (torch.nn.Module): the network
-        loss_fn (class): the loss function for the network
         device (torch.device): the device on which to run
         exp_name (str): the name of the config file to load
         epoch_num (int): the epoch number (for saving images)
+        save_embedding (bool): whether to save an image of the embedding
     '''
     net.eval()
 
     # Load hyperparameters
-    config, _, batch_size, _ = load_config(exp_name)
-    
-    loss_fn = Classification_Loss(config['classification_alpha'], config['reduction'])
+    config, _, _, _ = load_config(exp_name)
+    batch_size = config['validation_batch_size']
+
+    loss_fn = Classification_Loss(
+        config['classification_alpha'], config['reduction'])
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
-        batch_size, config['geometry'])
+        batch_size=batch_size, geometry=config['geometry'])
 
     with torch.no_grad():
         # This will keep track of total average loss for all test data
@@ -154,12 +216,13 @@ def validation_round(net, device, exp_name, epoch_num):
 
         with tqdm(total=num_val, desc='Validation: ', unit=' pointclouds') \
                 as progress:
-            for input, label_map, _, _, _ in test_data_loader:
+            for input, label_map, instance_map, num_instances, image_id in \
+                    test_data_loader:
                 input = input.to(device)
                 label_map = label_map.to(device)
 
                 # Forward Prop
-                predictions = net(input)
+                predictions, instance_predictions = net(input)
 
                 loss = loss_fn(predictions, label_map)
 
@@ -173,16 +236,20 @@ def validation_round(net, device, exp_name, epoch_num):
                 if config['visualize']:
                     if epoch_num + 1 in config['vis_after_epoch'] or \
                             config['vis_every_epoch']:
-                        truth_filename = 'epoch_%s__image_%s_truth.jpg' % \
+                        truth_filename = 'epoch_%s_image_%s_truth.jpg' % \
                             (epoch_num, image_num)
-                        pcl_filename = 'epoch_%s__image_%s_point_cloud.jpg' % \
+                        pcl_filename = 'epoch_%s_image_%s_point_cloud.jpg' % \
                             (epoch_num, image_num)
-                        prediction_filename = 'epoch_%s__image_%s_unet.jpg' % \
+                        prediction_filename = 'epoch_%s_image_%s_unet.jpg' % \
+                            (epoch_num, image_num)
+                        em_filename = 'epoch_%s_image_%s_embedding.jpg' % \
                             (epoch_num, image_num)
 
-                        save_images(exp_name, input[0], label_map[0],
-                                    predictions[0], pcl_filename,
-                                    truth_filename, prediction_filename)
+                        save_images(exp_name, epoch_num, input[0],
+                                    instance_map[0], predictions[0],
+                                    pcl_filename, truth_filename,
+                                    prediction_filename,
+                                    em_filename if save_embedding else None)
                 image_num += batch_size
 
                 # Update the progress bar, moving it along by one batch size
@@ -234,7 +301,8 @@ def train(exp_name, device):
     elif isinstance(loss_fn, Successive_E_F_Loss):
         loss_str = 'Successive Embedding and Focal Loss'
     elif isinstance(loss_fn, Successive_E_C_Loss):
-        loss_str = 'Successive Embedding and Alpha-balanced Classification Loss'
+        loss_str = 'Successive Embedding and ' + \
+            'Alpha-balanced Classification Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -249,7 +317,7 @@ def train(exp_name, device):
     # Edit this setting in config file.
     if config['resume_training']:
         start_epoch = config['resume_from']
-        saved_ckpt_path = get_model_name(config, start_epoch)
+        saved_ckpt_path = get_model_path(config, start_epoch)
 
         if config['mGPUs']:
             net.module.load_state_dict(
@@ -261,11 +329,12 @@ def train(exp_name, device):
         print('Successfully loaded trained checkpoint at {}'.format(
             saved_ckpt_path))
     else:
-        start_epoch = 0
+        start_epoch = 1
 
     # Do an initial validation round as a benchmark
-    validation_round(net, device, exp_name, start_epoch)
-    
+    validation_round(net, device, exp_name, start_epoch - 1,
+                     save_embedding=config['save_embedding'])
+
     training_losses = []
     testing_losses = []
 
@@ -275,19 +344,8 @@ def train(exp_name, device):
         epoch_loss = 0
         net.train()
 
-        with tqdm(total=num_train, desc='Epoch %s/%s' % (epoch+1, max_epochs),
+        with tqdm(total=num_train, desc='Epoch %s/%s' % (epoch, max_epochs),
                   unit=' pointclouds') as progress:
-            if epoch == 0:
-                print('Classification Loss Only')
-                loss_fn = Classification_Loss(config['classification_alpha'], config['reduction'])
-            else:
-                print('Successive Embedding and Classification')
-                loss_fn = Successive_E_C_Loss(
-                    device, lam=config['successive_lambda'],
-                    alpha=config['classification_alpha'],
-                    margin_s=config['embedding_margin_s'],
-                    margin_d=config['embedding_margin_d'],
-                    reduction=config['reduction'])            
             for input, label_map, instance_map, num_instances, image_id in \
                     train_data_loader:
                 input = input.to(device)
@@ -297,17 +355,18 @@ def train(exp_name, device):
 
                 # Forward Prop
                 predictions = net(input)
-                
-                if isinstance(loss_fn, Classification_Loss):
+
+                if isinstance(loss_fn, Classification_Loss) or \
+                        isinstance(loss_fn, Focal_Loss):
                     loss = loss_fn(predictions, label_map)
                     progress.set_postfix(
                         **{'loss': '{:.4f}'.format(abs(loss.item()))})
-
                 else:
-                    loss, embedding_loss, classification_loss = loss_fn(predictions, label_map)
+                    loss, em_loss, class_loss = loss_fn(predictions, label_map)
                     # Update the progress bar this this batch's loss
                     progress.set_postfix(
-                        **{'em/class': '{:.4f} {:.4f}'.format(abs(embedding_loss.item()), abs(classification_loss.item()))})
+                        **{'em/class': '{:.4f} {:.4f}'.format(
+                            abs(em_loss.item()), abs(class_loss.item()))})
 
                 # Back Prop
                 loss.backward()
@@ -321,29 +380,32 @@ def train(exp_name, device):
         # Record Training Loss
         epoch_loss = epoch_loss / len(train_data_loader)
         training_losses.append(epoch_loss)
-        train_writer.add_scalar('loss_epoch', epoch_loss, epoch + 1)
+        train_writer.add_scalar('loss_epoch', epoch_loss, epoch)
         print('Epoch {}: Training Loss: {:.5f}'.format(
             epoch + 1, epoch_loss))
 
         # Save Checkpoint
-        if (epoch + 1) == max_epochs or \
-                (epoch + 1) % config['save_every'] == 0:
-            model_path = get_model_name(config, epoch + 1)
+        if epoch == max_epochs or \
+                epoch % config['save_every'] == 0:
+            model_path = get_model_path(config, epoch)
             if config['mGPUs']:
                 torch.save(net.module.state_dict(), model_path)
             else:
                 torch.save(net.state_dict(), model_path)
             print('Checkpoint for epoch {} saved at {}\n'.format(
-                epoch + 1, model_path))
+                epoch, model_path))
 
         if scheduler is not None:
             scheduler.step()
 
-        testing_loss = validation_round(net, device, exp_name, epoch)
+        testing_loss = validation_round(
+            net, device, exp_name, epoch,
+            save_embedding=config['save_embedding'])
         testing_losses.append(testing_loss)
-        
-        csvFilename = os.path.join(base_dir, 'experiments', exp_name, 'loss_log.csv')
-    
+
+        csvFilename = os.path.join(
+            base_dir, 'experiments', exp_name, 'loss_log.csv')
+
         with open(csvFilename, 'w') as csvFile:
             csvWriter = csv.writer(csvFile)
             headers = ['Epoch Number', 'Training Loss', 'Testing Loss']
@@ -438,10 +500,11 @@ def evaluate_model(exp_name, device, plot=True):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
-    elif isinstance(loss_fn, Successive_Loss):
+    elif isinstance(loss_fn, Successive_E_F_Loss):
         loss_str = 'Successive Embedding and Focal Loss'
     elif isinstance(loss_fn, Successive_E_C_Loss):
-        loss_str = 'Successive Embedding and Alpha-balanced Classification Loss'
+        loss_str = 'Successive Embedding and ' + \
+            'Alpha-balanced Classification Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
@@ -449,7 +512,7 @@ def evaluate_model(exp_name, device, plot=True):
     Scheduler:       %s
     ''' % (loss_str, 'Adam', 'None'))
 
-    saved_ckpt_path = get_model_name(config)
+    saved_ckpt_path = get_model_path(config)
 
     net.load_state_dict(
         torch.load(saved_ckpt_path, map_location=device))
@@ -554,21 +617,22 @@ def test(exp_name, device, image_id):
 
     # Load the weights of the network
     net.load_state_dict(
-        torch.load(get_model_name(config), map_location=device))
+        torch.load(get_model_path(config), map_location=device))
 
     if isinstance(loss_fn, Classification_Loss):
         loss_str = 'Classification Loss'
     elif isinstance(loss_fn, Focal_Loss):
         loss_str = 'Focal Loss'
-    elif isinstance(loss_fn, Successive_Loss):
+    elif isinstance(loss_fn, Successive_E_F_Loss):
         loss_str = 'Successive Embedding and Focal Loss'
     elif isinstance(loss_fn, Successive_E_C_Loss):
-        loss_str = 'Successive Embedding and Alpha-balanced Classification Loss'
+        loss_str = 'Successive Embedding and ' + \
+            'Alpha-balanced Classification Loss'
 
     print('''\nBuilt model:
     Loss Function:   %s
     Weights:         %s
-    ''' % (loss_str, get_model_name(config)))
+    ''' % (loss_str, get_model_path(config)))
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -584,7 +648,7 @@ def test(exp_name, device, image_id):
     pcl_filename = 'EVAL_num_%s_point_cloud.jpg' % image_id
     prediction_filename = 'EVAL_num_%s_unet_output.jpg' % image_id
 
-    save_images(exp_name, input, label_map[0], prediction[0],
+    save_images(exp_name, 'final', input, label_map[0], prediction[0],
                 pcl_filename, truth_filename, prediction_filename)
     save_dir = os.path.join(base_dir, 'experiments', exp_name, 'images')
 
@@ -611,9 +675,9 @@ if __name__ == '__main__':
     # Choose a device for the model
     if torch.cuda.is_available():
         if not args.mode == 'train':
-            device = torch.device('cuda:1')
+            device = torch.device('cuda:0')
         else:
-            device = torch.device('cuda')
+            device = torch.device('cuda:0')
     else:
         device = torch.device('cpu')
 
