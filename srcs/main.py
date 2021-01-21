@@ -17,8 +17,8 @@ from loss.classification_loss import Classification_Loss
 from loss.focal_loss import Focal_Loss
 from loss.successive_e_c_loss import Successive_E_C_Loss
 from loss.successive_e_f_loss import Successive_E_F_Loss
-from utils import get_model_path, load_config, get_writer
-from utils import mkdir_p
+from loss.discriminative_loss import Discriminative_Loss
+from utils import get_model_path, load_config, mkdir_p, get_loss_string
 
 from models.unet import UNet
 
@@ -42,7 +42,7 @@ def build_model(config, device, train=True):
     net = UNet(config['geometry'], output_dim=1,
                use_batchnorm=config['use_bn'])
 
-    # Determine the loss function to be used
+    # Determine the loss function to be used and initialize it
     if config['training_loss'] == 'c' or not train:
         loss_fn = Classification_Loss(
             config['classification_alpha'], config['reduction'])
@@ -64,8 +64,10 @@ def build_model(config, device, train=True):
             margin_s=config['embedding_margin_s'],
             margin_d=config['embedding_margin_d'],
             reduction=config['reduction'])
+    elif config['training_loss'] == 'd':
+        loss_fn = Discriminative_Loss()
     else:
-        raise ValueError('loss argument must be in [c, f, s_ef, s_ec]')
+        raise ValueError('loss argument must be in [c, f, d, s_ef, s_ec]')
 
     # Determine whether to run on multiple GPUs
     if config['mGPUs'] and torch.cuda.device_count > 1 and train:
@@ -86,7 +88,7 @@ def build_model(config, device, train=True):
 
 def save_images(exp_name, epoch, input, label_map, prediction,
                 pcl_filename, truth_filename, pred_filename,
-                em_filename=None):
+                em_filename):
     '''
     Save images of the input Point Cloud,
     the ground truth, and the U-Net prediction
@@ -109,39 +111,79 @@ def save_images(exp_name, epoch, input, label_map, prediction,
     save_dir = os.path.join(base_dir, 'experiments', exp_name,
                             'images_{}epoch'.format(epoch))
     mkdir_p(save_dir)
+
+    # Create an array that maps instance number to color for visualization
     color_map = cm.get_cmap('jet')
+    colors = [color_map(x) for x in np.arange(
+        0, 1, 1./config['geometry']['max_num_instances'])]
+    for i, y in enumerate(colors):
+        # Disregard alpha value
+        colors[i] = [tuple(255 * x for x in y)[0:-1]]
+
+    # Copy to a Tensor for use in GPU tasks
+    colors_arr = torch.Tensor(label_map.shape[0], 3)
+    for i, x in enumerate(colors):
+        colors_arr[i][0] = x[0][0]
+        colors_arr[i][1] = x[0][1]
+        colors_arr[i][2] = x[0][2]
+    colors_arr = colors_arr.type(torch.uint8)
 
     # Ground Truth Image
-    # CxWxH to WxHxC & convert to grayscale image format (0-255 and 8-bit int)
-    if label_map.shape[0] == 1:
-        truth = np.array(
-            label_map.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-        image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
-    else:
-        image_truth = np.zeros((400, 400, 3), np.uint8)
-        points = torch.nonzero(label_map)
-        for p in points:
-            r, g, b, a = color_map(
-                np.float(p[0]) / label_map.shape[0])
-            image_truth[np.int64(p[1]), np.int64(p[2])] = \
-                (r * 255, g * 255, b * 255)
-    cv.imwrite(os.path.join(save_dir, truth_filename), image_truth)
+    if label_map is not None:
+        if label_map.shape[0] == 1:
+            # CxWxH to WxHxC & convert to grayscale image format
+            truth = np.array(
+                label_map.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
+            image_truth = cv.cvtColor(truth, cv.COLOR_GRAY2BGR)
+        else:
+            image_truth = np.zeros(
+                (config['geometry']['input_shape'][0],
+                 config['geometry']['input_shape'][1], 3), np.uint8)
+            points = torch.nonzero(label_map)
+            for p in points:
+                image_truth[np.int64(p[1]), np.int64(p[2])] = colors[p[0]][0]
+        cv.imwrite(os.path.join(save_dir, truth_filename), image_truth)
 
     # Point Cloud Image
-    image_pcl = np.zeros((400, 400, 3), np.uint8)
-    points = torch.nonzero(input)
-    for p in points:
-        r, g, b, a = color_map(
-            np.float(p[0]) / config['geometry']['input_shape'][2])
-        image_pcl[np.int64(p[1]), np.int64(p[2])] = (r * 255, g * 255, b * 255)
-    cv.imwrite(os.path.join(save_dir, pcl_filename), image_pcl)
+    if input is not None:
+        image_pcl = np.zeros(
+            (config['geometry']['input_shape'][0],
+             config['geometry']['input_shape'][1], 3), np.uint8)
+        points = torch.nonzero(input)
+        for p in points:
+            # Color gradient based on height
+            r, g, b, a = color_map(
+                np.float(p[0]) / config['geometry']['input_shape'][2])
+            image_pcl[np.int64(p[1]), np.int64(p[2])] = \
+                (r * 255, g * 255, b * 255)
+        cv.imwrite(os.path.join(save_dir, pcl_filename), image_pcl)
 
     # Prediction Image
-    prediction = torch.sigmoid(prediction)
-    prediction_gray = np.array(
-        prediction.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
-    prediction_bgr = cv.cvtColor(prediction_gray, cv.COLOR_GRAY2BGR)
-    cv.imwrite(os.path.join(save_dir, pred_filename), prediction_bgr)
+    if prediction is not None:
+        prediction = torch.sigmoid(prediction)
+        if prediction.shape[0] == 1:
+            prediction_gray = np.array(
+                prediction.cpu() * 255, dtype=np.uint8).transpose(1, 2, 0)
+            cv.imwrite(os.path.join(save_dir, pred_filename), prediction_gray)
+        else:
+            prediction = prediction.contiguous().view(
+                prediction.shape[0], prediction.shape[1] *
+                prediction.shape[2]).permute(1, 0)
+            image_pred = torch.zeros((
+                config['geometry']['input_shape'][0]
+                * config['geometry']['input_shape'][1], 3))
+            one_hot = torch.argmax(prediction, dim=1)
+            vals, _ = torch.max(prediction, dim=1)
+            image_pred = torch.index_select(colors_arr.cuda(), 0, one_hot)
+            maxes = torch.zeros_like(image_pred).type(torch.float32)
+            maxes[:, 0] = vals
+            maxes[:, 1] = vals
+            maxes[:, 2] = vals
+            image_pred = torch.mul(image_pred, maxes).reshape(
+                (config['geometry']['input_shape'][0],
+                 config['geometry']['input_shape'][1], 3))
+            image_pred = image_pred.cpu().numpy()
+            cv.imwrite(os.path.join(save_dir, pred_filename), image_pred)
 
     # Embedding Image
     if em_filename is not None:
@@ -152,11 +194,14 @@ def save_images(exp_name, epoch, input, label_map, prediction,
         # RANSAC a certain number of negative and positive pixels
         pos_pixels = []
         neg_pixels = []
-        while len(pos_pixels) + len(neg_pixels) < 250:
+        total_pixels = 250
+        while len(pos_pixels) + len(neg_pixels) < total_pixels:
             index = int(random.random() * len(flattened_preds))
-            if flattened_labels[index] == 1 and len(pos_pixels) < 125:
+            if flattened_labels[index] == 1 and \
+                    len(pos_pixels) < total_pixels / 2:
                 pos_pixels.append(flattened_preds[index])
-            elif flattened_labels[index] == 0 and len(neg_pixels) < 125:
+            elif flattened_labels[index] == 0 and \
+                    len(neg_pixels) < total_pixels / 2:
                 neg_pixels.append(flattened_preds[index])
 
         # Determine the Y axis scale and values
@@ -165,22 +210,27 @@ def save_images(exp_name, epoch, input, label_map, prediction,
         y_scale = 400 / (abs(max_y - min_y))
 
         # Create the image, plotting all the pixels
-        image_embedding = np.zeros((400, 400, 3), np.uint8)
+        image_embedding = np.zeros(
+            (config['geometry']['input_shape'][0],
+             config['geometry']['input_shape'][1], 3), np.uint8)
         for y_val in pos_pixels:
-            x_image = np.random.normal(loc=200, scale=60)
-            x_image = int(max(1, min(x_image, 399)))
+            x_image = np.random.normal(
+                loc=config['geometry']['input_shape'][0] / 2, scale=60)
+            x_image = int(
+                max(1, min(x_image, config['geometry']['input_shape'][0] - 1)))
             y_image = int((y_val - min_y) * y_scale)
             image_embedding = cv.circle(
                 image_embedding, (x_image, y_image),
                 radius=1, color=(0, 0, 255), thickness=-1)
         for y_val in neg_pixels:
-            x_image = np.random.normal(loc=200, scale=60)
-            x_image = int(max(1, min(x_image, 399)))
+            x_image = np.random.normal(
+                loc=config['geometry']['input_shape'][0] / 2, scale=60)
+            x_image = int(
+                max(1, min(x_image, config['geometry']['input_shape'][0] - 1)))
             y_image = int((y_val - min_y) * y_scale)
             image_embedding = cv.circle(
                 image_embedding, (x_image, y_image),
                 radius=1, color=(255, 0, 0), thickness=-1)
-
         cv.imwrite(os.path.join(save_dir, em_filename), image_embedding)
 
 
@@ -201,6 +251,7 @@ def validation_round(net, device, exp_name, epoch_num, save_embedding=False):
     config, _, _, _ = load_config(exp_name)
     batch_size = config['validation_batch_size']
 
+    # Always use Classification loss for evaluation
     loss_fn = Classification_Loss(
         config['classification_alpha'], config['reduction'])
 
@@ -210,12 +261,10 @@ def validation_round(net, device, exp_name, epoch_num, save_embedding=False):
 
     with torch.no_grad():
         # This will keep track of total average loss for all test data
-        val_loss = 0
+        ave_loss = 0
 
-        image_num = 0
-
-        with tqdm(total=num_val, desc='Validation: ', unit=' pointclouds') \
-                as progress:
+        with tqdm(total=num_val, desc='Validation: ', unit=' pointclouds',
+                  leave=False, colour='magenta') as progress:
             for input, label_map, instance_map, num_instances, image_id in \
                     test_data_loader:
                 input = input.to(device)
@@ -229,7 +278,7 @@ def validation_round(net, device, exp_name, epoch_num, save_embedding=False):
                 # Update the progress bar with the current batch loss
                 progress.set_postfix(
                     **{'batch loss': '{:.4f}'.format(abs(loss.item()))})
-                val_loss += abs(loss.item())
+                ave_loss += abs(loss.item())
 
                 # After some epochs, save an image of the
                 # input, output, and ground truth for visualization
@@ -237,27 +286,30 @@ def validation_round(net, device, exp_name, epoch_num, save_embedding=False):
                     if epoch_num + 1 in config['vis_after_epoch'] or \
                             config['vis_every_epoch']:
                         truth_filename = 'epoch_%s_image_%s_truth.jpg' % \
-                            (epoch_num, image_num)
+                            (epoch_num, progress.n)
                         pcl_filename = 'epoch_%s_image_%s_point_cloud.jpg' % \
-                            (epoch_num, image_num)
+                            (epoch_num, progress.n)
                         prediction_filename = 'epoch_%s_image_%s_unet.jpg' % \
-                            (epoch_num, image_num)
+                            (epoch_num, progress.n)
                         em_filename = 'epoch_%s_image_%s_embedding.jpg' % \
-                            (epoch_num, image_num)
+                            (epoch_num, progress.n)
 
                         save_images(exp_name, epoch_num, input[0],
-                                    instance_map[0], predictions[0],
+                                    instance_map[0], instance_predictions[0],
                                     pcl_filename, truth_filename,
                                     prediction_filename,
                                     em_filename if save_embedding else None)
-                image_num += batch_size
 
                 # Update the progress bar, moving it along by one batch size
                 progress.update(input.shape[0])
 
-        val_loss = val_loss / len(test_data_loader)
-        print('Validation Round Loss: %s' % val_loss)
-        return val_loss
+        ave_loss = ave_loss / len(test_data_loader)
+        if epoch_num == 0:
+            print('Initial Benchmark Validation Loss: {:.5f}'.format(ave_loss))
+        else:
+            print('Validation Loss After Epoch {} {:.5f}'.format(
+                epoch_num, ave_loss))
+        return ave_loss
 
 
 def train(exp_name, device):
@@ -294,24 +346,11 @@ def train(exp_name, device):
     net, loss_fn, optimizer, scheduler = build_model(
         config, device, train=True)
 
-    if isinstance(loss_fn, Classification_Loss):
-        loss_str = 'Alpha-balanced Classification Loss'
-    elif isinstance(loss_fn, Focal_Loss):
-        loss_str = 'Focal Loss'
-    elif isinstance(loss_fn, Successive_E_F_Loss):
-        loss_str = 'Successive Embedding and Focal Loss'
-    elif isinstance(loss_fn, Successive_E_C_Loss):
-        loss_str = 'Successive Embedding and ' + \
-            'Alpha-balanced Classification Loss'
-
     print('''\nBuilt model:
     Loss Function:   %s
     Optimizer:       %s
     Scheduler:       %s
-    ''' % (loss_str, 'Adam', 'None'))
-
-    # Tensorboard Logger
-    train_writer = get_writer(config, 'train')
+    ''' % (get_loss_string(loss_fn), 'Adam', 'None'))
 
     # For picking up training at the epoch where you left off.
     # Edit this setting in config file.
@@ -338,14 +377,14 @@ def train(exp_name, device):
     training_losses = []
     testing_losses = []
 
-    # Train for max_epochs epochs
     for epoch in range(start_epoch, max_epochs):
 
         epoch_loss = 0
         net.train()
 
         with tqdm(total=num_train, desc='Epoch %s/%s' % (epoch, max_epochs),
-                  unit=' pointclouds') as progress:
+                  unit=' pointclouds', leave=False, colour='green') \
+                as progress:
             for input, label_map, instance_map, num_instances, image_id in \
                     train_data_loader:
                 input = input.to(device)
@@ -354,25 +393,22 @@ def train(exp_name, device):
                 optimizer.zero_grad()
 
                 # Forward Prop
-                predictions = net(input)
+                predictions, instance_predictions = net(input)
 
-                if isinstance(loss_fn, Classification_Loss) or \
-                        isinstance(loss_fn, Focal_Loss):
-                    loss = loss_fn(predictions, label_map)
-                    progress.set_postfix(
-                        **{'loss': '{:.4f}'.format(abs(loss.item()))})
-                else:
+                if isinstance(loss_fn, Successive_E_F_Loss) or \
+                        isinstance(loss_fn, Successive_E_C_Loss):
                     loss, em_loss, class_loss = loss_fn(predictions, label_map)
-                    # Update the progress bar this this batch's loss
                     progress.set_postfix(
                         **{'em/class': '{:.4f} {:.4f}'.format(
                             abs(em_loss.item()), abs(class_loss.item()))})
+                else:
+                    loss = loss_fn(predictions, label_map)
+                    progress.set_postfix(
+                        **{'loss': '{:.4f}'.format(abs(loss.item()))})
 
                 # Back Prop
                 loss.backward()
                 optimizer.step()
-
-                epoch_loss += loss.item()
 
                 # Update the progress bar by moving it along by this batch size
                 progress.update(input.shape[0])
@@ -380,9 +416,7 @@ def train(exp_name, device):
         # Record Training Loss
         epoch_loss = epoch_loss / len(train_data_loader)
         training_losses.append(epoch_loss)
-        train_writer.add_scalar('loss_epoch', epoch_loss, epoch)
-        print('Epoch {}: Training Loss: {:.5f}'.format(
-            epoch + 1, epoch_loss))
+        print('Epoch {}: Training Loss: {:.5f}'.format(epoch, epoch_loss))
 
         # Save Checkpoint
         if epoch == max_epochs or \
@@ -398,14 +432,14 @@ def train(exp_name, device):
         if scheduler is not None:
             scheduler.step()
 
-        testing_loss = validation_round(
+        testing_losses.append(validation_round(
             net, device, exp_name, epoch,
-            save_embedding=config['save_embedding'])
-        testing_losses.append(testing_loss)
+            save_embedding=config['save_embedding']))
 
         csvFilename = os.path.join(
             base_dir, 'experiments', exp_name, 'loss_log.csv')
 
+        # Every epoch, re-write the csv file containing the losses
         with open(csvFilename, 'w') as csvFile:
             csvWriter = csv.writer(csvFile)
             headers = ['Epoch Number', 'Training Loss', 'Testing Loss']
@@ -415,7 +449,8 @@ def train(exp_name, device):
                 rows.append([i, training_losses[i], testing_losses[i]])
             csvWriter.writerows(rows)
 
-    print('Finished Training. Check the experiment folder for loss info, etc.')
+    print('Finished Training. Check this folder for loss info, images, etc.:')
+    print(os.path.join(base_dir, 'experiments', exp_name))
 
 
 def eval_loader(config, net, loss_fn, loader, loader_name, device):
@@ -481,14 +516,13 @@ def eval_loader(config, net, loss_fn, loader, loader_name, device):
     return metrics
 
 
-def evaluate_model(exp_name, device, plot=True):
+def evaluate_model(exp_name, device):
     '''
     Determine the total performance of the network on all data
 
     Parameters:
         exp_name (str): the name of the config file to load
         device (torch.device): the device on which to run
-        plot (bool): whether to plot the results for visualization
     '''
     # Load Hyperparameters
     config, _, _, _ = load_config(exp_name)
@@ -496,21 +530,11 @@ def evaluate_model(exp_name, device, plot=True):
     # Build the model
     net, loss_fn = build_model(config, device, train=False)
 
-    if isinstance(loss_fn, Classification_Loss):
-        loss_str = 'Classification Loss'
-    elif isinstance(loss_fn, Focal_Loss):
-        loss_str = 'Focal Loss'
-    elif isinstance(loss_fn, Successive_E_F_Loss):
-        loss_str = 'Successive Embedding and Focal Loss'
-    elif isinstance(loss_fn, Successive_E_C_Loss):
-        loss_str = 'Successive Embedding and ' + \
-            'Alpha-balanced Classification Loss'
-
     print('''\nBuilt model:
     Loss Function:   %s
     Optimizer:       %s
     Scheduler:       %s
-    ''' % (loss_str, 'Adam', 'None'))
+    ''' % (get_loss_string(loss_fn), 'Adam', 'None'))
 
     saved_ckpt_path = get_model_path(config)
 
@@ -619,20 +643,10 @@ def test(exp_name, device, image_id):
     net.load_state_dict(
         torch.load(get_model_path(config), map_location=device))
 
-    if isinstance(loss_fn, Classification_Loss):
-        loss_str = 'Classification Loss'
-    elif isinstance(loss_fn, Focal_Loss):
-        loss_str = 'Focal Loss'
-    elif isinstance(loss_fn, Successive_E_F_Loss):
-        loss_str = 'Successive Embedding and Focal Loss'
-    elif isinstance(loss_fn, Successive_E_C_Loss):
-        loss_str = 'Successive Embedding and ' + \
-            'Alpha-balanced Classification Loss'
-
     print('''\nBuilt model:
     Loss Function:   %s
     Weights:         %s
-    ''' % (loss_str, get_model_path(config)))
+    ''' % (get_loss_string(loss_fn), get_model_path(config)))
 
     # Retrieve the datasets for training and testing
     train_data_loader, test_data_loader, num_train, num_val = get_data_loader(
@@ -684,6 +698,6 @@ if __name__ == '__main__':
     if args.mode == 'train':
         train(exp_name, device)
     if args.mode == 'eval':
-        evaluate_model(exp_name, device, plot=False)
+        evaluate_model(exp_name, device)
     if args.mode == 'test':
         test(exp_name, device, image_id=args.test_id)

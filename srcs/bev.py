@@ -51,8 +51,8 @@ class BEV:
             vmin=geom['H1'], vmax=geom['H2'])
 
         self.cnorm_bev = matplotlib.colors.Normalize(
-            vmin=(geom['H1'] - self.mins[2]) / self.resolutions[2],
-            vmax=(geom['H2'] - self.mins[2]) / self.resolutions[2])
+            vmin=geom['H1'],
+            vmax=geom['H2'])
 
     cmap_jet = matplotlib.pyplot.cm.get_cmap('jet')
 

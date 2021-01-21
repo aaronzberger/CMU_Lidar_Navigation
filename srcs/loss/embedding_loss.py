@@ -6,8 +6,6 @@ See https://arxiv.org/pdf/1712.01511.pdf
 
 import torch
 import torch.nn as nn
-from config import exp_name
-from utils import load_config
 
 
 class Embedding_Loss(nn.Module):
@@ -31,13 +29,11 @@ class Embedding_Loss(nn.Module):
 
         self.margin_dissimilar = (torch.tensor([margin_dissimilar])).to(device)
 
-        _, _, self.batch_size, _ = load_config(exp_name)
-
-        if not self.batch_size >= 2 and self.contrastive:
+    def contrastive_loss(self, input, target):
+        if not input.shape[0] >= 2:
             raise ValueError('Contrastive Embedding Loss requires two images \
                 to compare. Increase batch size to >= 2')
 
-    def contrastive_loss(self, input, target):
         x = input.view(-1, 1)
         y = target.view(-1, 1)
 
@@ -64,8 +60,6 @@ class Embedding_Loss(nn.Module):
 
         # Negative loss means it's within the margin, so set to 0
         contrastive_loss[contrastive_loss < 0] = 0
-
-        # print(y_a[645], y_b[645], point_dists[645], contrastive_loss[645], alpha[645])
 
         return alpha * contrastive_loss
 

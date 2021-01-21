@@ -10,9 +10,13 @@ import os
 from math import sin, cos
 
 import numpy as np
-from torch.utils.tensorboard import SummaryWriter
 
 from config import base_dir, exp_name
+from loss.classification_loss import Classification_Loss
+from loss.discriminative_loss import Discriminative_Loss
+from loss.focal_loss import Focal_Loss
+from loss.successive_e_c_loss import Successive_E_C_Loss
+from loss.successive_e_f_loss import Successive_E_F_Loss
 
 
 def load_config(exp_name):
@@ -72,14 +76,6 @@ def load_target_mean_std():
     return data['target_mean'], data['target_std']
 
 
-def get_writer(config, mode='train'):
-    folder = os.path.join('logs', config['name'], mode)
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-
-    return SummaryWriter(folder)
-
-
 def mkdir_p(path):
     '''
     Create a directory at a given path if it does not already exist
@@ -100,3 +96,19 @@ def rotation_2d(theta):
     return np.array(
         [[cos(theta), -sin(theta)],
          [sin(theta),  cos(theta)]])
+
+
+def get_loss_string(loss_fn):
+    if isinstance(loss_fn, Classification_Loss):
+        return 'Alpha-balanced Classification Loss'
+    elif isinstance(loss_fn, Focal_Loss):
+        return 'Focal Loss'
+    elif isinstance(loss_fn, Discriminative_Loss):
+        return 'Discriminative Loss'
+    elif isinstance(loss_fn, Successive_E_F_Loss):
+        return 'Successive Embedding and Focal Loss'
+    elif isinstance(loss_fn, Successive_E_C_Loss):
+        return 'Successive Embedding and ' + \
+            'Alpha-balanced Classification Loss'
+    else:
+        return 'Unknown'
